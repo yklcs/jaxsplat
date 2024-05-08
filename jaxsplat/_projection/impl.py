@@ -1,11 +1,11 @@
-import functools
-
-import jax
 from jax.interpreters import mlir, xla
 from jax.lib import xla_client
-from jax import core, dtypes
+from jax import core
 
-from jaxsplat import abstract, lowering, jaxsplatlib
+import functools
+
+from jaxsplat import jaxsplatlib
+from jaxsplat._projection import lowering, abstract
 
 
 # register GPU XLA custom calls
