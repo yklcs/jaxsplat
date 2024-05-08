@@ -33,7 +33,7 @@ void compute_cov2d_bounds(cudaStream_t stream, void **buffers,
 }
 
 void project_gaussians_fwd(cudaStream_t stream, void **buffers,
-                               const char *opaque, std::size_t opaque_len) {
+                           const char *opaque, std::size_t opaque_len) {
 
   const ProjectGaussiansFwdDescriptor &d =
       *unpack_descriptor<ProjectGaussiansFwdDescriptor>(opaque, opaque_len);
@@ -53,15 +53,15 @@ void project_gaussians_fwd(cudaStream_t stream, void **buffers,
       static_cast<std::int32_t *>(buffers[10]);
 
   dim3 img_size;
-  img_size.x = d.img_width;
-  img_size.y = d.img_height;
+  img_size.x = d.img_shape.first;
+  img_size.y = d.img_shape.second;
 
   dim3 tile_bounds_dim3;
-  tile_bounds_dim3.x = int((d.img_width + d.block_width - 1) / d.block_width);
-  tile_bounds_dim3.y = int((d.img_height + d.block_width - 1) / d.block_width);
+  tile_bounds_dim3.x = int((img_size.x + d.block_width - 1) / d.block_width);
+  tile_bounds_dim3.y = int((img_size.y + d.block_width - 1) / d.block_width);
   tile_bounds_dim3.z = 1;
 
-  float4 intrins = {d.fx, d.fy, d.cx, d.cy};
+  float4 intrins = {d.f.first, d.f.second, d.c.first, d.c.second};
 
   constexpr unsigned block_dim = 256;
   const unsigned grid_dim =

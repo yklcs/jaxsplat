@@ -11,12 +11,9 @@ def project_gaussians_fwd(
     viewmat: jax.Array,
     # desc
     glob_scale: float,
-    fx: float,
-    fy: float,
-    cx: float,
-    cy: float,
-    img_width: int,
-    img_height: int,
+    f: tuple[float, float],
+    c: tuple[float, float],
+    img_shape: tuple[float, float],
     block_width: int,
     clip_thresh: float,
 ):
@@ -30,12 +27,9 @@ def project_gaussians_fwd(
         # desc
         num_points=num_points,
         glob_scale=glob_scale,
-        fx=fx,
-        fy=fy,
-        cx=cx,
-        cy=cy,
-        img_width=img_width,
-        img_height=img_height,
+        f=f,
+        c=c,
+        img_shape=img_shape,
         block_width=block_width,
         clip_thresh=clip_thresh,
     )

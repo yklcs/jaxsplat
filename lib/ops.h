@@ -3,6 +3,7 @@
 #include <cuda_runtime.h>
 
 #include <cstddef>
+#include <utility>
 
 void compute_cov2d_bounds(cudaStream_t stream, void **buffers,
                           const char *opaque, std::size_t opaque_len);
@@ -12,14 +13,14 @@ struct Cov2DBoundsDescriptor {
 };
 
 void project_gaussians_fwd(cudaStream_t stream, void **buffers,
-                               const char *opaque, std::size_t opaque_len);
+                           const char *opaque, std::size_t opaque_len);
 
 struct ProjectGaussiansFwdDescriptor {
   unsigned num_points;
   float glob_scale;
-  float fx, fy;
-  float cx, cy;
-  unsigned img_width, img_height;
+  std::pair<float, float> f;
+  std::pair<float, float> c;
+  std::pair<unsigned, unsigned> img_shape;
   unsigned block_width;
   float clip_thresh;
 };
