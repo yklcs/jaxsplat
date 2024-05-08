@@ -8,7 +8,7 @@ py::dict registrations() {
   return dict;
 }
 
-PYBIND11_MODULE(jaxsplatlib, m) {
+PYBIND11_MODULE(_jaxsplat, m) {
   m.def("registrations", &registrations);
   m.def("make_cov2d_bounds_descriptor", [](unsigned num_points) {
     return pack_descriptor(Cov2DBoundsDescriptor{num_points});

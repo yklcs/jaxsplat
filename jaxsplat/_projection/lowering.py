@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 from dataclasses import dataclass
 
-from jaxsplat import jaxsplatlib
+from jaxsplat import _jaxsplat
 from jaxsplat._types import Type
 
 
@@ -28,7 +28,7 @@ def _project_gaussians_fwd_lowering(
     block_width: ir.Value,
     clip_thresh: ir.Value,
 ):
-    opaque = jaxsplatlib.make_project_gaussians_fwd_descriptor(
+    opaque = _jaxsplat.make_project_gaussians_fwd_descriptor(
         num_points,
         glob_scale,
         fx,
