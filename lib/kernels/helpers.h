@@ -64,7 +64,7 @@ inline __device__ void cov2d_to_conic_vjp(const float3 &conic,
   // df/d_cov2d = -conic * df/d_conic * conic
   mat2 X = mat2<float>(conic.x, conic.y, conic.y, conic.z);
   mat2 G = mat2(v_conic.x, v_conic.y / 2.f, v_conic.y / 2.f, v_conic.z);
-  mat2 v_Sigma = -X.matmul(G).matmul(X);
+  mat2 v_Sigma = -X * G * X;
   v_cov2d.x = v_Sigma[0][0];
   v_cov2d.y = v_Sigma[1][0] + v_Sigma[0][1];
   v_cov2d.z = v_Sigma[1][1];

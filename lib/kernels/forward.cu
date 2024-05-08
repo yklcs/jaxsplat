@@ -427,12 +427,12 @@ __device__ void project_cov3d_ewa(const float3 &__restrict__ mean3d,
   // we only care about the top 2x2 submatrix
   mat3 J = mat3(fx * rz, 0.f, 0.f, 0.f, fy * rz, 0.f, -fx * t.x * rz2,
                 -fy * t.y * rz2, 0.f);
-  mat3 T = J.matmul(W);
+  mat3 T = J * W;
 
   mat3 V = mat3(cov3d[0], cov3d[1], cov3d[2], cov3d[1], cov3d[3], cov3d[4],
                 cov3d[2], cov3d[4], cov3d[5]);
 
-  mat3 cov = T.matmul(V).matmul(T.transpose());
+  mat3 cov = T * V * T.transpose();
 
   // add a little blur along axes and save upper triangular elements
   // and compute the density compensation factor due to the blurs
@@ -454,8 +454,8 @@ __device__ void scale_rot_to_cov3d(const float3 scale, const float glob_scale,
   mat3 S = helpers::scale_to_mat(scale, glob_scale);
   // printf("S %.2f %.2f %.2f\n", S[0][0], S[1][1], S[2][2]);
 
-  mat3 M = R.matmul(S);
-  mat3 tmp = M.matmul(M.transpose());
+  mat3 M = R * S;
+  mat3 tmp = M * M.transpose();
   // printf("tmp %.2f %.2f %.2f\n", tmp[0][0], tmp[1][1], tmp[2][2]);
 
   // save upper right because symmetric

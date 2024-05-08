@@ -15,6 +15,7 @@ pybind11_add_module(
     ${CMAKE_CURRENT_LIST_DIR}/lib/ffi.cxx
     ${CMAKE_CURRENT_LIST_DIR}/lib/ops.cu
     ${CMAKE_CURRENT_LIST_DIR}/lib/kernels/forward.cu
+    ${CMAKE_CURRENT_LIST_DIR}/lib/kernels/backward.cu
     ${CMAKE_CURRENT_LIST_DIR}/lib/kernels/other.cu
 )
 

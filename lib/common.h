@@ -46,7 +46,7 @@ template <typename T> struct mat3 {
     return m[idx];
   }
 
-  inline __device__ mat3 matmul(mat3 const &rhs) const {
+  inline __device__ mat3 operator*(mat3 const &rhs) const {
     return mat3<T>(
         m[0][0] * rhs[0][0] + m[0][1] * rhs[1][0] + m[0][2] * rhs[2][0],
         m[1][0] * rhs[0][0] + m[1][1] * rhs[1][0] + m[1][2] * rhs[2][0],
@@ -57,6 +57,13 @@ template <typename T> struct mat3 {
         m[0][0] * rhs[0][2] + m[0][1] * rhs[1][2] + m[0][2] * rhs[2][2],
         m[1][0] * rhs[0][2] + m[1][1] * rhs[1][2] + m[1][2] * rhs[2][2],
         m[2][0] * rhs[0][2] + m[2][1] * rhs[1][2] + m[2][2] * rhs[2][2]);
+  }
+
+  inline __device__ mat3 operator+(mat3 const &rhs) const {
+    return mat3<T>(
+        m[0][0] + rhs[0][0], m[1][0] + rhs[1][0], m[2][0] + rhs[2][0],
+        m[0][1] + rhs[0][1], m[1][1] + rhs[1][1], m[2][1] + rhs[2][1],
+        m[0][2] + rhs[0][2], m[1][2] + rhs[1][2], m[2][2] + rhs[2][2]);
   }
 
   inline __device__ mat3 transpose() const {
@@ -91,7 +98,7 @@ template <typename T> struct mat2 {
     return mat2(-m[0][0], -m[1][0], -m[0][1], -m[1][1]);
   }
 
-  inline __device__ mat2 matmul(mat2 const &rhs) const {
+  inline __device__ mat2 operator*(mat2 const &rhs) const {
     return mat2<T>(m[0][0] * rhs[0][0] + m[0][1] * rhs[1][0],
                    m[1][0] * rhs[0][0] + m[1][1] * rhs[1][0],
                    m[0][0] * rhs[0][1] + m[0][1] * rhs[1][1],
