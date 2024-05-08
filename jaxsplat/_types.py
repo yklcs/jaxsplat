@@ -1,23 +1,33 @@
+import jax
 from jax.interpreters import mlir
 from jax.interpreters.mlir import ir
+from jax.core import ShapedArray, canonicalize_shape
 import jax.numpy as jnp
 from jax.typing import DTypeLike
-
-
-def layout(shape):
-    return tuple(range(len(shape) - 1, -1, -1))
+from jax.dtypes import canonicalize_dtype
 
 
 class Type:
     shape: tuple[int, ...]
     dtype: jnp.dtype
-    ir_type: ir.Type
-    ir_tensor_type: ir.RankedTensorType
-    layout: tuple
 
     def __init__(self, shape: tuple[int, ...], dtype: DTypeLike):
-        self.shape = shape
+        self.shape = canonicalize_shape(shape)
         self.dtype = jnp.dtype(dtype)
-        self.ir_type = mlir.dtype_to_ir_type(self.dtype)
-        self.ir_tensor_type = ir.RankedTensorType.get(shape, self.ir_type)
-        self.layout = layout(shape)
+
+    def ir_type(self):
+        return mlir.dtype_to_ir_type(self.dtype)
+
+    def ir_tensor_type(self):
+        return ir.RankedTensorType.get(self.shape, self.ir_type())
+
+    def layout(self):
+        return tuple(range(len(self.shape) - 1, -1, -1))
+
+    def shaped_array(self):
+        return ShapedArray(self.shape, self.dtype)
+
+    def assert_(self, other: jax.Array):
+        assert self.shape == other.shape and canonicalize_dtype(
+            self.dtype
+        ) == canonicalize_dtype(other.dtype)

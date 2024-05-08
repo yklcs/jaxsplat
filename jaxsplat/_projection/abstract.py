@@ -1,7 +1,23 @@
 import jax
-from jax.core import ShapedArray
-from jax.dtypes import canonicalize_dtype
 import jax.numpy as jnp
+
+from jaxsplat._types import Type
+
+
+class ProjectGaussiansFwdTypes:
+    def __init__(self, num_points: int):
+        self.in_means3d = Type((num_points, 3), jnp.float32)
+        self.in_scales = Type((num_points, 3), jnp.float32)
+        self.in_quats = Type((num_points, 4), jnp.float32)
+        self.in_viewmat = Type((4, 4), jnp.float32)
+
+        self.out_covs3d = Type((num_points, 3), jnp.float32)
+        self.out_xys = Type((num_points, 2), jnp.float32)
+        self.out_depths = Type((num_points, 1), jnp.float32)
+        self.out_radii = Type((num_points, 1), jnp.int32)
+        self.out_conics = Type((num_points, 3), jnp.float32)
+        self.out_compensation = Type((num_points, 1), jnp.float32)
+        self.out_num_tiles_hit = Type((num_points, 1), jnp.uint32)
 
 
 def _project_gaussians_fwd_abs(
@@ -22,30 +38,19 @@ def _project_gaussians_fwd_abs(
     assert means3d.shape[0] == scales.shape[0] == quats.shape[0]
     num_points = means3d.shape[0]
 
-    assert means3d.shape == (num_points, 3)
-    assert scales.shape == (num_points, 3)
-    assert quats.shape == (num_points, 4)
-    assert viewmat.shape == (4, 4)
+    t = ProjectGaussiansFwdTypes(num_points)
 
-    assert canonicalize_dtype(means3d.dtype) == jnp.float32
-    assert canonicalize_dtype(scales.dtype) == jnp.float32
-    assert canonicalize_dtype(quats.dtype) == jnp.float32
-    assert canonicalize_dtype(viewmat.dtype) == jnp.float32
-
-    out_covs3d = ShapedArray((num_points, 3), jnp.float32)
-    out_xys = ShapedArray((num_points, 2), jnp.float32)
-    out_depths = ShapedArray((num_points, 1), jnp.float32)
-    out_radii = ShapedArray((num_points, 1), jnp.int32)
-    out_conics = ShapedArray((num_points, 3), jnp.float32)
-    out_compensation = ShapedArray((num_points, 1), jnp.float32)
-    out_num_tiles_hit = ShapedArray((num_points, 1), jnp.uint32)
+    t.in_means3d.assert_(means3d)
+    t.in_scales.assert_(scales)
+    t.in_quats.assert_(quats)
+    t.in_viewmat.assert_(viewmat)
 
     return (
-        out_covs3d,
-        out_xys,
-        out_depths,
-        out_radii,
-        out_conics,
-        out_compensation,
-        out_num_tiles_hit,
+        t.out_covs3d.shaped_array(),
+        t.out_xys.shaped_array(),
+        t.out_depths.shaped_array(),
+        t.out_radii.shaped_array(),
+        t.out_conics.shaped_array(),
+        t.out_compensation.shaped_array(),
+        t.out_num_tiles_hit.shaped_array(),
     )
