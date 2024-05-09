@@ -25,6 +25,20 @@ struct ProjectGaussiansFwdDescriptor {
   float clip_thresh;
 };
 
+void project_gaussians_bwd(cudaStream_t stream, void **buffers,
+                           const char *opaque, std::size_t opaque_len);
+
+struct ProjectGaussiansBwdDescriptor {
+  unsigned num_points;
+  float glob_scale;
+  // float fx, fy;
+  // float cx, cy;
+  // unsigned img_width, img_height;
+  std::pair<float, float> f;
+  std::pair<float, float> c;
+  std::pair<unsigned, unsigned> img_shape;
+};
+
 // torch::Tensor compute_sh_forward_tensor(const std::string &method,
 //                                         unsigned num_points, unsigned degree,
 //                                         unsigned degrees_to_use,

@@ -7,7 +7,7 @@ import torch
 
 
 def test_project_gaussians_forward():
-    num_points = 100
+    num_points = 10
 
     key = jax.random.key(2)
 
@@ -39,43 +39,82 @@ def test_project_gaussians_forward():
     # viewmat[:3, :3] = quat_to_rotmat(torch.randn(4))
     BLOCK_SIZE = 16
 
-    (
-        covs3d,
-        xys,
-        depths,
-        radii,
-        conics,
-        compensation,
-        num_tiles_hit,
-    ) = jaxsplat.project_gaussians_fwd(
+    # (
+    #     covs3d,
+    #     xys,
+    #     depths,
+    #     radii,
+    #     conics,
+    #     compensation,
+    #     num_tiles_hit,
+    # ) = jaxsplat.project_gaussians(
+    #     means3d,
+    #     scales,
+    #     quats,
+    #     viewmat,
+    #     glob_scale=glob_scale,
+    #     f=(fx, fy),
+    #     c=(cx, cy),
+    #     img_shape=(W, H),
+    #     block_width=BLOCK_SIZE,
+    #     clip_thresh=clip_thresh,
+    # )
+
+    # print(xys)
+
+    def test_grad_jax(
         means3d,
         scales,
         quats,
         viewmat,
-        glob_scale=glob_scale,
-        f=(fx, fy),
-        c=(cx, cy),
-        img_shape=(W, H),
-        block_width=BLOCK_SIZE,
-        clip_thresh=clip_thresh,
-    )
+    ):
+        (
+            covs3d,
+            xys,
+            depths,
+            radii,
+            conics,
+            compensation,
+            num_tiles_hit,
+        ) = jaxsplat._project_gaussians(
+            means3d,
+            scales,
+            quats,
+            viewmat,
+            glob_scale=glob_scale,
+            f=(fx, fy),
+            c=(cx, cy),
+            img_shape=(W, H),
+            block_width=BLOCK_SIZE,
+            clip_thresh=clip_thresh,
+        )
 
-    print(xys)
+        return xys.mean()
+
+    grad = jax.grad(test_grad_jax, argnums=(0,))
+    print(grad(means3d, scales, quats, viewmat))
+
+    # torch
+
+    means3d_torch = torch.from_numpy(np.array(means3d)).cuda().requires_grad_(True)
+    scales_torch = torch.from_numpy(np.array(scales)).cuda().requires_grad_(True)
+    quats_torch = torch.from_numpy(np.array(quats)).cuda().requires_grad_(True)
+    viewmat_torch = torch.from_numpy(np.array(viewmat)).cuda()
 
     (
         xys,
         depths,
-        radii,
+        radii,  # no grad
         conics,
         compensation,
-        num_tiles_hit,
+        num_tiles_hit,  # no grad
         cov3d,
     ) = gsplat.project_gaussians(
-        torch.from_numpy(np.array(means3d)).cuda(),
-        torch.from_numpy(np.array(scales)).cuda(),
+        means3d_torch,
+        scales_torch,
         glob_scale,
-        torch.from_numpy(np.array(quats)).cuda(),
-        torch.from_numpy(np.array(viewmat)).cuda(),
+        quats_torch,
+        viewmat_torch,
         fx=fx,
         fy=fy,
         cx=cx,
@@ -86,9 +125,9 @@ def test_project_gaussians_forward():
         clip_thresh=clip_thresh,
     )
 
-    print(xys)
-
-    masks = num_tiles_hit > 0
+    z = xys.mean()
+    z.backward()
+    print(means3d_torch.grad)
 
 
 if __name__ == "__main__":

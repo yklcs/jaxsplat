@@ -10,7 +10,7 @@ namespace kernels {
 // for f : R(n) -> R(m), J in R(m, n),
 // v is cotangent in R(m), e.g. dL/df in R(m),
 // compute vjp i.e. vT J -> R(n)
-__global__ void project_gaussians_backward_kernel(
+__global__ void project_gaussians_bwd(
     const int num_points, const float3 *__restrict__ means3d,
     const float3 *__restrict__ scales, const float glob_scale,
     const float4 *__restrict__ quats, const float *__restrict__ viewmat,

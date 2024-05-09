@@ -314,7 +314,7 @@ __global__ void rasterize_backward_kernel(
   }
 }
 
-__global__ void project_gaussians_backward_kernel(
+__global__ void project_gaussians_bwd(
     const int num_points, const float3 *__restrict__ means3d,
     const float3 *__restrict__ scales, const float glob_scale,
     const float4 *__restrict__ quats, const float *__restrict__ viewmat,

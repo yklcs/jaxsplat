@@ -1,4 +1,4 @@
-from jaxsplat._projection import project_gaussians_fwd
+from jaxsplat._projection import _project_gaussians
 
 
-__all__ = ["project_gaussians_fwd"]
+__all__ = ["_project_gaussians"]
