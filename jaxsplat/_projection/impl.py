@@ -9,7 +9,7 @@ from jaxsplat._projection import lowering, abstract
 
 
 # register GPU XLA custom calls
-for name, value in _jaxsplat.registrations().items():
+for name, value in _jaxsplat.projection_registrations().items():
     xla_client.register_custom_call_target(name, value, platform="gpu")
 
 
