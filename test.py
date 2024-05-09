@@ -76,7 +76,7 @@ def test_project_gaussians_forward():
             conics,
             compensation,
             num_tiles_hit,
-        ) = jaxsplat._project_gaussians(
+        ) = jaxsplat.project_gaussians(
             means3d,
             scales,
             quats,
