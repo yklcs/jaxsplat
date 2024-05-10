@@ -13,7 +13,8 @@ include_directories(${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 pybind11_add_module(
     _jaxsplat
     ${CMAKE_CURRENT_LIST_DIR}/lib/ffi.cu
-    ${CMAKE_CURRENT_LIST_DIR}/lib/ops.cu
+    ${CMAKE_CURRENT_LIST_DIR}/lib/render.cu
+    ${CMAKE_CURRENT_LIST_DIR}/lib/impls.cu
     ${CMAKE_CURRENT_LIST_DIR}/lib/kernels/forward.cu
     ${CMAKE_CURRENT_LIST_DIR}/lib/kernels/backward.cu
     ${CMAKE_CURRENT_LIST_DIR}/lib/kernels/other.cu

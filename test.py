@@ -1,12 +1,9 @@
 import jaxsplat
 import jax
 import jax.numpy as jnp
-import numpy as np
-import gsplat
-import torch
 
 
-def test_project_gaussians_forward():
+def test():
     num_points = 10
 
     key = jax.random.key(2)
@@ -19,15 +16,8 @@ def test_project_gaussians_forward():
 
     key, subkey = jax.random.split(key)
     quats = jax.random.normal(subkey, (num_points, 4))
-
     quats /= jnp.linalg.norm(quats, axis=-1, keepdims=True)
 
-    glob_scale = 0.1
-    H, W = 512, 512
-    cx, cy = W / 2, H / 2
-    # 90 degree FOV
-    fx, fy = W / 2, W / 2
-    clip_thresh = 0.01
     viewmat = jnp.array(
         [
             [1.0, 0.0, 0.0, 0.0],
@@ -36,100 +26,45 @@ def test_project_gaussians_forward():
             [0.0, 0.0, 0.0, 1.0],
         ]
     )
-    # viewmat[:3, :3] = quat_to_rotmat(torch.randn(4))
-    BLOCK_SIZE = 16
 
-    # (
-    #     covs3d,
-    #     xys,
-    #     depths,
-    #     radii,
-    #     conics,
-    #     compensation,
-    #     num_tiles_hit,
-    # ) = jaxsplat.project_gaussians(
-    #     means3d,
-    #     scales,
-    #     quats,
-    #     viewmat,
-    #     glob_scale=glob_scale,
-    #     f=(fx, fy),
-    #     c=(cx, cy),
-    #     img_shape=(W, H),
-    #     block_width=BLOCK_SIZE,
-    #     clip_thresh=clip_thresh,
-    # )
+    key, subkey = jax.random.split(key)
+    colors = jax.random.uniform(subkey, (num_points, 3))
 
-    # print(xys)
+    key, subkey = jax.random.split(key)
+    opacities = jax.random.uniform(subkey, (num_points, 1))
 
-    def test_grad_jax(
-        means3d,
-        scales,
-        quats,
-        viewmat,
-    ):
-        (
-            covs3d,
-            xys,
-            depths,
-            radii,
-            conics,
-            compensation,
-            num_tiles_hit,
-        ) = jaxsplat.project_gaussians(
+    background = jnp.array([1, 1, 1], dtype=jnp.float32)
+
+    glob_scale = 0.1
+    H, W = 512, 512
+    cx, cy = W / 2, H / 2
+    fx, fy = W / 2, W / 2
+    clip_thresh = 0.01
+
+    block_size = 16
+
+    def test_grad_jax(means3d, scales, quats, colors, opacities, background):
+        rendered = jaxsplat.render(
             means3d,
             scales,
             quats,
             viewmat,
+            colors,
+            opacities,
+            background,
             glob_scale=glob_scale,
             f=(fx, fy),
             c=(cx, cy),
             img_shape=(W, H),
-            block_width=BLOCK_SIZE,
+            block_width=block_size,
             clip_thresh=clip_thresh,
         )
 
-        return xys.mean()
+        return rendered.mean()
 
     grad = jax.grad(test_grad_jax, argnums=(0,))
-    print(grad(means3d, scales, quats, viewmat))
-
-    # torch
-
-    means3d_torch = torch.from_numpy(np.array(means3d)).cuda().requires_grad_(True)
-    scales_torch = torch.from_numpy(np.array(scales)).cuda().requires_grad_(True)
-    quats_torch = torch.from_numpy(np.array(quats)).cuda().requires_grad_(True)
-    viewmat_torch = torch.from_numpy(np.array(viewmat)).cuda()
-
-    (
-        xys,
-        depths,
-        radii,  # no grad
-        conics,
-        compensation,
-        num_tiles_hit,  # no grad
-        cov3d,
-    ) = gsplat.project_gaussians(
-        means3d_torch,
-        scales_torch,
-        glob_scale,
-        quats_torch,
-        viewmat_torch,
-        fx=fx,
-        fy=fy,
-        cx=cx,
-        cy=cy,
-        img_width=W,
-        img_height=H,
-        block_width=BLOCK_SIZE,
-        clip_thresh=clip_thresh,
-    )
-
-    z = xys.mean()
-    z.backward()
-    print(means3d_torch.grad)
+    print(grad(means3d, scales, quats, colors, opacities, background))
 
 
 if __name__ == "__main__":
-    torch.set_default_device("cuda")
-    test_project_gaussians_forward()
+    test()

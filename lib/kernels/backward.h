@@ -35,7 +35,7 @@ __global__ void nd_rasterize_backward_kernel(
     float2 *__restrict__ v_xy_abs, float3 *__restrict__ v_conic,
     float *__restrict__ v_rgb, float *__restrict__ v_opacity);
 
-__global__ void rasterize_backward_kernel(
+__global__ void rasterize_bwd(
     const dim3 tile_bounds, const dim3 img_size,
     const int32_t *__restrict__ gaussian_ids_sorted,
     const int2 *__restrict__ tile_bins, const float2 *__restrict__ xys,

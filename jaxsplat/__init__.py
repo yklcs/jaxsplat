@@ -1,4 +1,4 @@
-from jaxsplat._projection import project_gaussians
+from jaxsplat._render import render
 
 
-__all__ = ["project_gaussians"]
+__all__ = ["render"]
