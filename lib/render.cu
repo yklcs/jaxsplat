@@ -1,9 +1,12 @@
+#include "common.h"
 #include "ffi.h"
 #include "impls.h"
 #include "render.h"
 
 #include <cstddef>
+#include <cstdio>
 #include <cuda_runtime.h>
+#include <iostream>
 
 void render::fwd(
     cudaStream_t stream,
@@ -11,6 +14,8 @@ void render::fwd(
     const char *opaque,
     std::size_t opaque_len
 ) {
+    cudaError_t cuda_err;
+
     const auto &d =
         *unpack_descriptor<render::FwdDescriptor>(opaque, opaque_len);
     const auto args = render::unpack_fwd_args(buffers);
@@ -26,7 +31,9 @@ void render::fwd(
 
     int num_intersects;
     int *cum_tiles_hit;
-    cudaMalloc(&cum_tiles_hit, sizeof(*cum_tiles_hit) * d.num_points);
+    cuda_err =
+        cudaMalloc(&cum_tiles_hit, sizeof(*cum_tiles_hit) * d.num_points);
+    throw_if_cuda_error(cuda_err);
 
     impls::compute_cumulative_intersects(
         stream,
@@ -35,6 +42,8 @@ void render::fwd(
         num_intersects,
         cum_tiles_hit
     );
+
+    std::cout << num_intersects << std::endl;
 
     impls::bin_and_sort_gaussians(
         stream,
@@ -52,7 +61,8 @@ void render::fwd(
 
     impls::rasterize_fwd(stream, d, args);
 
-    cudaFree(cum_tiles_hit);
+    cuda_err = cudaFree(cum_tiles_hit);
+    throw_if_cuda_error(cuda_err);
 }
 
 void render::bwd(

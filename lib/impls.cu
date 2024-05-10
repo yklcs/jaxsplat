@@ -1,3 +1,4 @@
+#include "common.h"
 #include "impls.h"
 #include "kernels/kernels.h"
 #include "render.h"
@@ -159,10 +160,12 @@ void impls::compute_cumulative_intersects(
     int32_t &num_intersects,
     int32_t *cum_tiles_hit
 ) {
+    cudaError_t cuda_err;
+
     void *sum_ws = nullptr;
     size_t sum_ws_bytes;
 
-    cub::DeviceScan::InclusiveSum(
+    cuda_err = cub::DeviceScan::InclusiveSum(
         sum_ws,
         sum_ws_bytes,
         num_tiles_hit,
@@ -170,9 +173,12 @@ void impls::compute_cumulative_intersects(
         num_points,
         stream
     );
-    cudaMalloc(&sum_ws, sum_ws_bytes);
+    throw_if_cuda_error(cuda_err);
 
-    cub::DeviceScan::InclusiveSum(
+    cuda_err = cudaMalloc(&sum_ws, sum_ws_bytes);
+    throw_if_cuda_error(cuda_err);
+
+    cuda_err = cub::DeviceScan::InclusiveSum(
         sum_ws,
         sum_ws_bytes,
         num_tiles_hit,
@@ -180,14 +186,18 @@ void impls::compute_cumulative_intersects(
         num_points,
         stream
     );
+    throw_if_cuda_error(cuda_err);
 
-    cudaMemcpy(
+    cuda_err = cudaMemcpy(
         &num_intersects,
         &(cum_tiles_hit[num_points - 1]),
         sizeof(int32_t),
         cudaMemcpyDeviceToHost
     );
-    cudaFree(sum_ws);
+    throw_if_cuda_error(cuda_err);
+
+    cuda_err = cudaFree(sum_ws);
+    throw_if_cuda_error(cuda_err);
 }
 
 void impls::bin_and_sort_gaussians(
@@ -203,18 +213,29 @@ void impls::bin_and_sort_gaussians(
     std::int32_t *gaussian_ids_sorted,
     int2 *tile_bins
 ) {
+    cudaError_t cuda_err;
+
     std::int32_t *gaussian_ids_unsorted;
     std::int64_t *isect_ids_unsorted;
     std::int64_t *isect_ids_sorted;
-    cudaMalloc(
+
+    cuda_err = cudaMalloc(
         &gaussian_ids_unsorted,
         num_intersects * sizeof(*gaussian_ids_unsorted)
     );
-    cudaMalloc(
+    throw_if_cuda_error(cuda_err);
+
+    cuda_err = cudaMalloc(
         &isect_ids_unsorted,
         num_intersects * sizeof(*isect_ids_unsorted)
     );
-    cudaMalloc(&isect_ids_sorted, num_intersects * sizeof(*isect_ids_sorted));
+    throw_if_cuda_error(cuda_err);
+
+    cuda_err = cudaMalloc(
+        &isect_ids_sorted,
+        num_intersects * sizeof(*isect_ids_sorted)
+    );
+    throw_if_cuda_error(cuda_err);
 
     const unsigned block_dim_1d = block_width * block_width;
     const unsigned grid_dim_1d = (num_points + block_dim_1d - 1) / block_dim_1d;
@@ -237,7 +258,7 @@ void impls::bin_and_sort_gaussians(
     // allocate workspace memory
     void *sort_ws = nullptr;
     size_t sort_ws_bytes;
-    cub::DeviceRadixSort::SortPairs(
+    cuda_err = cub::DeviceRadixSort::SortPairs(
         sort_ws,
         sort_ws_bytes,
         isect_ids_unsorted,
@@ -249,8 +270,12 @@ void impls::bin_and_sort_gaussians(
         32 + msb,
         stream
     );
-    cudaMalloc(&sort_ws, sort_ws_bytes);
-    cub::DeviceRadixSort::SortPairs(
+    throw_if_cuda_error(cuda_err);
+
+    cuda_err = cudaMalloc(&sort_ws, sort_ws_bytes);
+    throw_if_cuda_error(cuda_err);
+
+    cuda_err = cub::DeviceRadixSort::SortPairs(
         sort_ws,
         sort_ws_bytes,
         isect_ids_unsorted,
@@ -262,7 +287,10 @@ void impls::bin_and_sort_gaussians(
         32 + msb,
         stream
     );
-    cudaFree(sort_ws);
+    throw_if_cuda_error(cuda_err);
+
+    cuda_err = cudaFree(sort_ws);
+    throw_if_cuda_error(cuda_err);
 
     kernels::get_tile_bin_edges<<<grid_dim_1d, block_dim_1d, 0, stream>>>(
         num_intersects,
@@ -271,7 +299,12 @@ void impls::bin_and_sort_gaussians(
     );
 
     // free intermediate work spaces
-    cudaFree(isect_ids_unsorted);
-    cudaFree(isect_ids_sorted);
-    cudaFree(gaussian_ids_unsorted);
+    cuda_err = cudaFree(isect_ids_unsorted);
+    throw_if_cuda_error(cuda_err);
+
+    cuda_err = cudaFree(isect_ids_sorted);
+    throw_if_cuda_error(cuda_err);
+
+    cuda_err = cudaFree(gaussian_ids_unsorted);
+    throw_if_cuda_error(cuda_err);
 }
