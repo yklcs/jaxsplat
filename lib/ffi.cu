@@ -1,83 +1,71 @@
 #include "ffi.h"
-#include "render.h"
+#include "ops.h"
 
 py::dict registrations() {
     py::dict dict;
 
-    dict["render_fwd"] = encapsulate_function(render::fwd);
-    dict["render_bwd"] = encapsulate_function(render::bwd);
+    dict["project_fwd"] = encapsulate_function(ops::project::fwd::xla);
+    dict["project_bwd"] = encapsulate_function(ops::project::bwd::xla);
+    dict["rasterize_fwd"] = encapsulate_function(ops::rasterize::fwd::xla);
+    dict["rasterize_bwd"] = encapsulate_function(ops::rasterize::bwd::xla);
 
     return dict;
 }
 
-py::bytes make_render_fwd_descriptor(
+py::bytes make_descriptor(
     unsigned num_points,
-    float glob_scale,
+    unsigned num_intersects,
+    std::pair<unsigned, unsigned> img_shape,
     std::pair<float, float> f,
     std::pair<float, float> c,
-    std::pair<unsigned, unsigned> img_shape,
-    unsigned block_width,
-    float clip_thresh
-) {
-    float2 f_float2 = {f.first, f.second};
-    float2 c_float2 = {c.first, c.second};
-    dim3 img_shape_dim3 = {img_shape.first, img_shape.second, 1};
-
-    return pack_descriptor(render::FwdDescriptor{
-        num_points,
-        glob_scale,
-        f_float2,
-        c_float2,
-        img_shape_dim3,
-        block_width,
-        clip_thresh
-    });
-}
-
-py::bytes make_render_bwd_descriptor(
-    unsigned num_points,
     float glob_scale,
-    std::pair<float, float> f,
-    std::pair<float, float> c,
-    std::pair<unsigned, unsigned> img_shape,
+    float clip_thresh,
     unsigned block_width
 ) {
-    float2 f_float2 = {f.first, f.second};
-    float2 c_float2 = {c.first, c.second};
-    dim3 img_shape_dim3 = {img_shape.first, img_shape.second, 1};
+    float4 intrins = {f.first, f.second, c.first, c.second};
 
-    return pack_descriptor(render::BwdDescriptor{
+    // img_shape is in (H,W)
+    dim3 img_shape_dim3 = {img_shape.second, img_shape.first, 1};
+
+    const unsigned block_dim_1d = block_width * block_width;
+    const unsigned grid_dim_1d = (num_points + block_dim_1d - 1) / block_dim_1d;
+    dim3 block_dim_2d = {block_width, block_width, 1};
+    dim3 grid_dim_2d = {
+        (img_shape_dim3.x + block_width - 1) / block_width,
+        (img_shape_dim3.y + block_width - 1) / block_width,
+        1
+    };
+
+    ops::Descriptor desc = {
         num_points,
-        glob_scale,
-        f_float2,
-        c_float2,
+        num_intersects,
         img_shape_dim3,
-        block_width
-    });
+        intrins,
+        glob_scale,
+        clip_thresh,
+        block_width,
+        grid_dim_1d,
+        block_dim_1d,
+        grid_dim_2d,
+        block_dim_2d
+    };
+
+    return pack_descriptor(desc);
 }
 
 PYBIND11_MODULE(_jaxsplat, m) {
     m.def("registrations", &registrations);
 
     m.def(
-        "make_render_fwd_descriptor",
-        make_render_fwd_descriptor,
+        "make_descriptor",
+        make_descriptor,
         py::arg("num_points"),
-        py::arg("glob_scale"),
+        py::arg("num_intersects"),
+        py::arg("img_shape"),
         py::arg("f"),
         py::arg("c"),
-        py::arg("img_shape"),
-        py::arg("block_width"),
-        py::arg("clip_thresh")
-    );
-    m.def(
-        "make_render_bwd_descriptor",
-        make_render_bwd_descriptor,
-        py::arg("num_points"),
         py::arg("glob_scale"),
-        py::arg("f"),
-        py::arg("c"),
-        py::arg("img_shape"),
+        py::arg("clip_thresh"),
         py::arg("block_width")
     );
 }

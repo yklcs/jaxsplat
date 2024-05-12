@@ -1,4 +1,5 @@
-from jaxsplat._render import render
+from jaxsplat._project import project
+from jaxsplat._rasterize import rasterize
 
 
-__all__ = ["render"]
+__all__ = ["project", "rasterize"]

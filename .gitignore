@@ -11,3 +11,6 @@ build/
 venv/
 __pycache__/
 *.py[cod]
+
+test.png
+test.jpg
