@@ -74,7 +74,7 @@ class ProjectBwdTypes:
         self.out_v_scale = Type((num_points, 3), jnp.float32)
         self.out_v_quat = Type((num_points, 4), jnp.float32)
         self.out_v_cov2d = Type((num_points, 3), jnp.float32)
-        self.out_v_cov3d = Type((num_points, 1), jnp.float32)
+        self.out_v_cov3d = Type((num_points, 6), jnp.float32)
 
 
 def _project_bwd_abs(
