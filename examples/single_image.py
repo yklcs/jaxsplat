@@ -27,7 +27,7 @@ def main(
 
     def train(params, optim_state, video):
         for i in range(iterations):
-            if video is not None and i % 5 == 0:
+            if video is not None:
                 img = (render_fn(params, coeffs) * 255).astype(jnp.uint8)
                 video.write_frame(img)
 

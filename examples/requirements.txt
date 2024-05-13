@@ -1,5 +1,4 @@
 jax
 optax
-imageio
-av
+imageio[pyav]
 jaxsplat @ git+https://github.com/yklcs/jaxsplat
