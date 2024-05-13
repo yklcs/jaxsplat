@@ -7,10 +7,14 @@ import argparse
 
 
 def main(
-    iterations: int, num_points: int, gt_path: str, out_img_path: str, out_vid_path: str
+    iterations: int,
+    num_points: int,
+    lr: float,
+    gt_path: str,
+    out_img_path: str,
+    out_vid_path: str,
 ):
     key = jax.random.key(0)
-    lr = 0.01
 
     gt = jnp.array(iio.imread(gt_path)).astype(jnp.float32)[..., :3] / 255
 
@@ -157,8 +161,11 @@ if __name__ == "__main__":
     parser.add_argument("input")
     parser.add_argument("--iters", type=int, default=1000)
     parser.add_argument("--num_points", type=int, default=50_000)
+    parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--out_image", default="out.png")
     parser.add_argument("--out_video", default="out.mp4")
 
     args = parser.parse_args()
-    main(args.iters, args.num_points, args.input, args.out_image, args.out_video)
+    main(
+        args.iters, args.num_points, args.lr, args.input, args.out_image, args.out_video
+    )
