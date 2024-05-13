@@ -3,17 +3,16 @@ import jax
 import jax.numpy as jnp
 import imageio.v3 as iio
 import optax
+import argparse
 
 
-def main():
+def main(
+    iterations: int, num_points: int, gt_path: str, out_img_path: str, out_vid_path: str
+):
     key = jax.random.key(0)
-    iterations = 1000
-    num_points = 100_000
-    gt_path = "test.png"
-    out_path = "out.png"
     lr = 0.01
 
-    gt = jnp.array(iio.imread(gt_path)).astype(jnp.float32) / 255
+    gt = jnp.array(iio.imread(gt_path)).astype(jnp.float32)[..., :3] / 255
 
     key, subkey = jax.random.split(key)
     params, coeffs = init(subkey, num_points, gt.shape[:2])
@@ -26,23 +25,31 @@ def main():
         loss = jnp.mean(jnp.square(output - gt))
         return loss
 
-    with iio.imopen("out.mp4", "w", plugin="pyav") as video:
-        video.init_video_stream("h264")
+    def train(params, optim_state, video):
         for i in range(iterations):
-            if i % 2 == 0:
+            if video is not None and i % 5 == 0:
                 img = (render_fn(params, coeffs) * 255).astype(jnp.uint8)
                 video.write_frame(img)
 
             loss, grads = jax.value_and_grad(loss_fn, argnums=0)(params, coeffs, gt)
             updates, optim_state = optim.update(grads, optim_state)
             params = optax.apply_updates(params, updates)
-            print(f"{i=} {loss.item():.5f}")
+
+            if i % 50 == 0:
+                print(f"iter {i} loss {loss.item():.5f}")
 
             if loss < 1e-3:
                 break
 
+    if out_vid_path != "":
+        with iio.imopen(out_vid_path, "w", plugin="pyav") as video:
+            video.init_video_stream("h264")
+            train(params, optim_state, video)
+    else:
+        train(params, optim_state, None)
+
     out = render_fn(params, coeffs)
-    iio.imwrite(out_path, (out * 255).astype(jnp.uint8))
+    iio.imwrite(out_img_path, (out * 255).astype(jnp.uint8))
 
 
 def init(key, num_points, img_shape):
@@ -143,4 +150,15 @@ def render_fn(params, coeffs):
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        prog="python -m examples.single_image",
+        description="Fits 3D Gaussians to single 2D image",
+    )
+    parser.add_argument("input")
+    parser.add_argument("--iters", type=int, default=1000)
+    parser.add_argument("--num_points", type=int, default=50_000)
+    parser.add_argument("--out_image", default="out.png")
+    parser.add_argument("--out_video", default="out.mp4")
+
+    args = parser.parse_args()
+    main(args.iters, args.num_points, args.input, args.out_image, args.out_video)
