@@ -21,19 +21,19 @@ The primary function of this library is `jaxsplat.render`:
 
 ```python
 img = jaxsplat.render(
-    means3d,   # (B, 3)
-    scales,    # (B, 3)
-    quats,     # (B, 4)
-    colors,    # (B, 3)
-    opacities, # (B, 1)
-    viewmat=viewmat,
-    background=background,
-    img_shape=img_shape,
-    f=f,
-    c=c,
-    glob_scale=glob_scale,
-    clip_thresh=clip_thresh,
-    block_size=block_size,
+    means3d,   # jax.Array (N, 3)
+    scales,    # jax.Array (N, 3)
+    quats,     # jax.Array (N, 4) normalized
+    colors,    # jax.Array (N, 3)
+    opacities, # jax.Array (N, 1)
+    viewmat=viewmat,         # jax.Array (4, 4)
+    background=background,   # jax.Array (3,)
+    img_shape=img_shape,     # tuple[int, int] = (H, W)
+    f=f,                     # tuple[float, float] = (fx, fy)
+    c=c,                     # tuple[int, int] = (cx, cy)
+    glob_scale=glob_scale,   # float
+    clip_thresh=clip_thresh, # float
+    block_size=block_size,   # int <= 16
 )
 ```
 
