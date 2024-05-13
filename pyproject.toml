@@ -1,0 +1,12 @@
+[build-system]
+requires = ["scikit-build-core"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "jaxsplat"
+version = "0.1.0"
+readme = "README.md"
+license = {file = "LICENSE.txt"}
+
+[tool.setuptools]
+cmake.version = ">=3.24"
