@@ -1,6 +1,6 @@
 # jaxsplat
 
-<video autoplay loop muted src="./jaxsplat.mp4"></video>
+![](./jaxsplat.gif)
 
 A port of 3D Gaussian Splatting to JAX.
 Fully differentiable, CUDA accelerated.
