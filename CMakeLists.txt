@@ -23,4 +23,4 @@ pybind11_add_module(
 
 target_compile_options(_jaxsplat PUBLIC -lineinfo -g3)
 
-install(TARGETS _jaxsplat LIBRARY DESTINATION .)
+install(TARGETS _jaxsplat LIBRARY DESTINATION jaxsplat)
