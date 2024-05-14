@@ -49,7 +49,8 @@ void xla(
     std::size_t opaque_len
 );
 struct Tensors;
-Tensors unpack_tensors(void **buffers);
+Tensors
+unpack_tensors(cudaStream_t stream, const Descriptor &d, void **buffers);
 
 } // namespace project::fwd
 
@@ -62,7 +63,8 @@ void xla(
     std::size_t opaque_len
 );
 struct Tensors;
-Tensors unpack_tensors(void **buffers);
+Tensors
+unpack_tensors(cudaStream_t stream, const Descriptor &d, void **buffers);
 
 } // namespace project::bwd
 
@@ -75,7 +77,8 @@ void xla(
     std::size_t opaque_len
 );
 struct Tensors;
-Tensors unpack_tensors(void **buffers);
+Tensors
+unpack_tensors(cudaStream_t stream, const Descriptor &d, void **buffers);
 
 } // namespace rasterize::fwd
 
@@ -88,22 +91,10 @@ void xla(
     std::size_t opaque_len
 );
 struct Tensors;
-Tensors unpack_tensors(void **buffers);
+Tensors
+unpack_tensors(cudaStream_t stream, const Descriptor &d, void **buffers);
 
 } // namespace rasterize::bwd
-
-// namespace sort {
-
-// void xla(
-//     cudaStream_t stream,
-//     void **buffers,
-//     const char *opaque,
-//     std::size_t opaque_len
-// );
-// struct Tensors;
-// Tensors unpack_tensors(void **buffers);
-
-// } // namespace sort
 
 struct ops::project::fwd::Tensors {
     struct In {
@@ -218,22 +209,5 @@ struct rasterize::bwd::Tensors {
         float3 *v_conic;
     } out;
 };
-
-// struct sort::Tensors {
-//     struct In {
-//         // projection output
-//         const float2 *xys;
-//         const float *depths;
-//         const int *radii;
-
-//         // sorting and binning
-//         const int2 *tile_bins;
-//         const int *cum_tiles_hit;
-//     } in;
-//     struct Out {
-//         int *gaussian_ids_sorted;
-//         int2 *tile_bins;
-//     } out;
-// };
 
 } // namespace ops

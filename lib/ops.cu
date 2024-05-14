@@ -15,11 +15,205 @@ void ops::project::fwd::xla(
     const char *opaque,
     std::size_t opaque_len
 ) {
-    const auto &d = *unpack_descriptor<Descriptor>(opaque, opaque_len);
-    const auto tensors = unpack_tensors(buffers);
     cudaError_t cuda_err;
+    const auto &d = *unpack_descriptor<Descriptor>(opaque, opaque_len);
 
-    cudaDeviceSynchronize();
+    const auto tensors = unpack_tensors(stream, d, buffers);
+    cudaStreamSynchronize(stream);
+
+    kernels::
+        project_gaussians_fwd<<<d.grid_dim_1d, d.block_dim_1d, 0, stream>>>(
+            // in
+            d.num_points,
+            tensors.in.mean3ds,
+            tensors.in.scales,
+            d.glob_scale,
+            tensors.in.quats,
+            tensors.in.viewmat,
+            d.intrins,
+            d.img_shape,
+            d.grid_dim_2d,
+            d.block_width,
+            d.clip_thresh,
+
+            // out
+            tensors.out.cov3ds,
+            tensors.out.xys,
+            tensors.out.depths,
+            tensors.out.radii,
+            tensors.out.conics,
+            tensors.out.compensation,
+            tensors.out.num_tiles_hit
+        );
+    cuda_err = cudaGetLastError();
+    CUDA_THROW_IF_ERR(cuda_err);
+    cudaStreamSynchronize(stream);
+
+    cumsum(
+        stream,
+        tensors.out.num_tiles_hit,
+        tensors.out.cum_tiles_hit,
+        d.num_points
+    );
+    cuda_err = cudaGetLastError();
+    CUDA_THROW_IF_ERR(cuda_err);
+    cudaStreamSynchronize(stream);
+}
+
+void ops::project::bwd::xla(
+    cudaStream_t stream,
+    void **buffers,
+    const char *opaque,
+    std::size_t opaque_len
+) {
+    cudaError_t cuda_err;
+    const auto &d = *unpack_descriptor<Descriptor>(opaque, opaque_len);
+
+    const auto &tensors = unpack_tensors(stream, d, buffers);
+    cudaStreamSynchronize(stream);
+
+    kernels::
+        project_gaussians_bwd<<<d.grid_dim_1d, d.block_dim_1d, 0, stream>>>(
+            // in
+            d.num_points,
+            tensors.in.mean3ds,
+            tensors.in.scales,
+            d.glob_scale,
+            tensors.in.quats,
+            tensors.in.viewmat,
+            d.intrins,
+            d.img_shape,
+            tensors.in.cov3ds,
+            tensors.in.radii,
+            tensors.in.conics,
+            tensors.in.compensation,
+            tensors.in.v_xy,
+            tensors.in.v_depth,
+            tensors.in.v_conic,
+            tensors.in.v_compensation,
+
+            // out
+            tensors.out.v_cov2d,
+            tensors.out.v_cov3d,
+            tensors.out.v_mean3d,
+            tensors.out.v_scale,
+            tensors.out.v_quat
+        );
+    cuda_err = cudaGetLastError();
+    CUDA_THROW_IF_ERR(cuda_err);
+    cudaStreamSynchronize(stream);
+}
+
+void ops::rasterize::fwd::xla(
+    cudaStream_t stream,
+    void **buffers,
+    const char *opaque,
+    std::size_t opaque_len
+) {
+    cudaError_t cuda_err;
+    const auto &d = *unpack_descriptor<Descriptor>(opaque, opaque_len);
+
+    const auto tensors = unpack_tensors(stream, d, buffers);
+    cudaStreamSynchronize(stream);
+
+    sort_and_bin(
+        stream,
+        d,
+        tensors.in.xys,
+        tensors.in.depths,
+        tensors.in.radii,
+        tensors.in.cum_tiles_hit,
+        tensors.out.gaussian_ids_sorted,
+        tensors.out.tile_bins
+    );
+    cuda_err = cudaGetLastError();
+    CUDA_THROW_IF_ERR(cuda_err);
+    cudaStreamSynchronize(stream);
+
+    kernels::rasterize_fwd<<<d.grid_dim_2d, d.block_dim_2d, 0, stream>>>(
+        // in
+        d.grid_dim_2d,
+        d.img_shape,
+        tensors.out.gaussian_ids_sorted,
+        tensors.out.tile_bins,
+        tensors.in.xys,
+        tensors.in.conics,
+        tensors.in.colors,
+        tensors.in.opacities,
+
+        // out
+        tensors.out.final_Ts,
+        tensors.out.final_idx,
+        tensors.out.out_img,
+        *tensors.in.background
+    );
+    cuda_err = cudaGetLastError();
+    CUDA_THROW_IF_ERR(cuda_err);
+    cudaStreamSynchronize(stream);
+};
+
+void ops::rasterize::bwd::xla(
+    cudaStream_t stream,
+    void **buffers,
+    const char *opaque,
+    std::size_t opaque_len
+) {
+    cudaError_t cuda_err;
+    const auto &d = *unpack_descriptor<Descriptor>(opaque, opaque_len);
+
+    const auto tensors = unpack_tensors(stream, d, buffers);
+    cudaStreamSynchronize(stream);
+
+    kernels::rasterize_bwd<<<d.grid_dim_2d, d.block_dim_2d, 0, stream>>>(
+        // in
+        d.grid_dim_2d,
+        d.img_shape,
+        tensors.in.gaussian_ids_sorted,
+        tensors.in.tile_bins,
+        tensors.in.xys,
+        tensors.in.conics,
+        tensors.in.colors,
+        tensors.in.opacities,
+        *tensors.in.background,
+        tensors.in.final_Ts,
+        tensors.in.final_idx,
+        tensors.in.v_out_img,
+        tensors.in.v_out_img_alpha,
+
+        // out
+        tensors.out.v_xy,
+        tensors.out.v_xy_abs,
+        tensors.out.v_conic,
+        tensors.out.v_colors,
+        tensors.out.v_opacity
+    );
+    cuda_err = cudaGetLastError();
+    CUDA_THROW_IF_ERR(cuda_err);
+    cudaStreamSynchronize(stream);
+};
+
+ops::project::fwd::Tensors ops::project::fwd::unpack_tensors(
+    cudaStream_t stream,
+    const Descriptor &d,
+    void **buffers
+) {
+    Tensors tensors;
+    cudaError_t cuda_err;
+    std::size_t idx = 0;
+
+    tensors.in.mean3ds = static_cast<float3 *>(buffers[idx++]);
+    tensors.in.scales = static_cast<float3 *>(buffers[idx++]);
+    tensors.in.quats = static_cast<float4 *>(buffers[idx++]);
+    tensors.in.viewmat = static_cast<float *>(buffers[idx++]);
+
+    tensors.out.cov3ds = static_cast<float *>(buffers[idx++]);
+    tensors.out.xys = static_cast<float2 *>(buffers[idx++]);
+    tensors.out.depths = static_cast<float *>(buffers[idx++]);
+    tensors.out.radii = static_cast<int *>(buffers[idx++]);
+    tensors.out.conics = static_cast<float3 *>(buffers[idx++]);
+    tensors.out.compensation = static_cast<float *>(buffers[idx++]);
+    tensors.out.num_tiles_hit = static_cast<int *>(buffers[idx++]);
+    tensors.out.cum_tiles_hit = static_cast<int *>(buffers[idx++]);
 
     cuda_err = cudaMemsetAsync(
         tensors.out.cov3ds,
@@ -85,58 +279,37 @@ void ops::project::fwd::xla(
     );
     CUDA_THROW_IF_ERR(cuda_err);
 
-    kernels::
-        project_gaussians_fwd<<<d.grid_dim_1d, d.block_dim_1d, 0, stream>>>(
-            // in
-            d.num_points,
-            tensors.in.mean3ds,
-            tensors.in.scales,
-            d.glob_scale,
-            tensors.in.quats,
-            tensors.in.viewmat,
-            d.intrins,
-            d.img_shape,
-            d.grid_dim_2d,
-            d.block_width,
-            d.clip_thresh,
-
-            // out
-            tensors.out.cov3ds,
-            tensors.out.xys,
-            tensors.out.depths,
-            tensors.out.radii,
-            tensors.out.conics,
-            tensors.out.compensation,
-            tensors.out.num_tiles_hit
-        );
-    cuda_err = cudaGetLastError();
-    CUDA_THROW_IF_ERR(cuda_err);
-
-    cudaStreamSynchronize(stream);
-
-    cumsum(
-        stream,
-        tensors.out.num_tiles_hit,
-        tensors.out.cum_tiles_hit,
-        d.num_points
-    );
-    cuda_err = cudaGetLastError();
-    CUDA_THROW_IF_ERR(cuda_err);
-
-    cudaStreamSynchronize(stream);
+    return tensors;
 }
 
-void ops::project::bwd::xla(
+ops::project::bwd::Tensors ops::project::bwd::unpack_tensors(
     cudaStream_t stream,
-    void **buffers,
-    const char *opaque,
-    std::size_t opaque_len
+    const Descriptor &d,
+    void **buffers
 ) {
-    const auto &d = *unpack_descriptor<Descriptor>(opaque, opaque_len);
-    const auto &tensors = unpack_tensors(buffers);
+    Tensors tensors;
     cudaError_t cuda_err;
+    std::size_t idx = 0;
 
-    cudaDeviceSynchronize();
+    tensors.in.mean3ds = static_cast<float3 *>(buffers[idx++]);
+    tensors.in.scales = static_cast<float3 *>(buffers[idx++]);
+    tensors.in.quats = static_cast<float4 *>(buffers[idx++]);
+    tensors.in.viewmat = static_cast<float *>(buffers[idx++]);
+    tensors.in.cov3ds = static_cast<float *>(buffers[idx++]);
+    tensors.in.xys = static_cast<float2 *>(buffers[idx++]);
+    tensors.in.radii = static_cast<int *>(buffers[idx++]);
+    tensors.in.conics = static_cast<float3 *>(buffers[idx++]);
+    tensors.in.compensation = static_cast<float *>(buffers[idx++]);
+    tensors.in.v_compensation = static_cast<float *>(buffers[idx++]);
+    tensors.in.v_xy = static_cast<float2 *>(buffers[idx++]);
+    tensors.in.v_depth = static_cast<float *>(buffers[idx++]);
+    tensors.in.v_conic = static_cast<float3 *>(buffers[idx++]);
+
+    tensors.out.v_mean3d = static_cast<float3 *>(buffers[idx++]);
+    tensors.out.v_scale = static_cast<float3 *>(buffers[idx++]);
+    tensors.out.v_quat = static_cast<float4 *>(buffers[idx++]);
+    tensors.out.v_cov2d = static_cast<float3 *>(buffers[idx++]);
+    tensors.out.v_cov3d = static_cast<float *>(buffers[idx++]);
 
     cuda_err = cudaMemsetAsync(
         tensors.out.v_cov2d,
@@ -178,54 +351,34 @@ void ops::project::bwd::xla(
     );
     CUDA_THROW_IF_ERR(cuda_err);
 
-    cudaDeviceSynchronize();
-
-    kernels::
-        project_gaussians_bwd<<<d.grid_dim_1d, d.block_dim_1d, 0, stream>>>(
-            // in
-            d.num_points,
-            tensors.in.mean3ds,
-            tensors.in.scales,
-            d.glob_scale,
-            tensors.in.quats,
-            tensors.in.viewmat,
-            d.intrins,
-            d.img_shape,
-            tensors.in.cov3ds,
-            tensors.in.radii,
-            tensors.in.conics,
-            tensors.in.compensation,
-            tensors.in.v_xy,
-            tensors.in.v_depth,
-            tensors.in.v_conic,
-            tensors.in.v_compensation,
-
-            // out
-            tensors.out.v_cov2d,
-            tensors.out.v_cov3d,
-            tensors.out.v_mean3d,
-            tensors.out.v_scale,
-            tensors.out.v_quat
-        );
-    cuda_err = cudaGetLastError();
-    CUDA_THROW_IF_ERR(cuda_err);
-
-    cudaDeviceSynchronize();
+    return tensors;
 }
 
-void ops::rasterize::fwd::xla(
+ops::rasterize::fwd::Tensors ops::rasterize::fwd::unpack_tensors(
     cudaStream_t stream,
-    void **buffers,
-    const char *opaque,
-    std::size_t opaque_len
+    const Descriptor &d,
+    void **buffers
 ) {
-    const auto &d = *unpack_descriptor<Descriptor>(opaque, opaque_len);
-    const auto tensors = unpack_tensors(buffers);
+    Tensors tensors;
     cudaError_t cuda_err;
+    std::size_t idx = 0;
 
-    cudaDeviceSynchronize();
+    tensors.in.colors = static_cast<float3 *>(buffers[idx++]);
+    tensors.in.opacities = static_cast<float *>(buffers[idx++]);
+    tensors.in.background = static_cast<float3 *>(buffers[idx++]);
+    tensors.in.xys = static_cast<float2 *>(buffers[idx++]);
+    tensors.in.depths = static_cast<float *>(buffers[idx++]);
+    tensors.in.radii = static_cast<int *>(buffers[idx++]);
+    tensors.in.conics = static_cast<float3 *>(buffers[idx++]);
+    tensors.in.cum_tiles_hit = static_cast<int *>(buffers[idx++]);
 
-    unsigned img_size = d.img_shape.x * d.img_shape.y;
+    tensors.out.gaussian_ids_sorted = static_cast<int *>(buffers[idx++]);
+    tensors.out.tile_bins = static_cast<int2 *>(buffers[idx++]);
+    tensors.out.final_Ts = static_cast<float *>(buffers[idx++]);
+    tensors.out.final_idx = static_cast<int *>(buffers[idx++]);
+    tensors.out.out_img = static_cast<float3 *>(buffers[idx++]);
+
+    const auto img_size = d.img_shape.x * d.img_shape.y;
 
     cuda_err = cudaMemsetAsync(
         tensors.out.gaussian_ids_sorted,
@@ -267,56 +420,35 @@ void ops::rasterize::fwd::xla(
     );
     CUDA_THROW_IF_ERR(cuda_err);
 
-    sort_and_bin(
-        stream,
-        d,
-        tensors.in.xys,
-        tensors.in.depths,
-        tensors.in.radii,
-        tensors.in.cum_tiles_hit,
-        tensors.out.gaussian_ids_sorted,
-        tensors.out.tile_bins
-    );
-    cuda_err = cudaGetLastError();
-    CUDA_THROW_IF_ERR(cuda_err);
+    return tensors;
+}
 
-    cudaDeviceSynchronize();
-    cudaStreamSynchronize(stream);
-
-    kernels::rasterize_fwd<<<d.grid_dim_2d, d.block_dim_2d, 0, stream>>>(
-        // in
-        d.grid_dim_2d,
-        d.img_shape,
-        tensors.out.gaussian_ids_sorted,
-        tensors.out.tile_bins,
-        tensors.in.xys,
-        tensors.in.conics,
-        tensors.in.colors,
-        tensors.in.opacities,
-
-        // out
-        tensors.out.final_Ts,
-        tensors.out.final_idx,
-        tensors.out.out_img,
-        *tensors.in.background
-    );
-    cuda_err = cudaGetLastError();
-    CUDA_THROW_IF_ERR(cuda_err);
-
-    cudaDeviceSynchronize();
-};
-
-void ops::rasterize::bwd::xla(
+ops::rasterize::bwd::Tensors ops::rasterize::bwd::unpack_tensors(
     cudaStream_t stream,
-    void **buffers,
-    const char *opaque,
-    std::size_t opaque_len
+    const Descriptor &d,
+    void **buffers
 ) {
-    const auto &d = *unpack_descriptor<Descriptor>(opaque, opaque_len);
-    const auto tensors = unpack_tensors(buffers);
+    Tensors tensors;
     cudaError_t cuda_err;
+    std::size_t idx = 0;
 
-    cudaDeviceSynchronize();
+    tensors.in.colors = static_cast<float3 *>(buffers[idx++]);
+    tensors.in.opacities = static_cast<float *>(buffers[idx++]);
+    tensors.in.background = static_cast<float3 *>(buffers[idx++]);
+    tensors.in.xys = static_cast<float2 *>(buffers[idx++]);
+    tensors.in.conics = static_cast<float3 *>(buffers[idx++]);
+    tensors.in.gaussian_ids_sorted = static_cast<int *>(buffers[idx++]);
+    tensors.in.tile_bins = static_cast<int2 *>(buffers[idx++]);
+    tensors.in.final_Ts = static_cast<float *>(buffers[idx++]);
+    tensors.in.final_idx = static_cast<int *>(buffers[idx++]);
+    tensors.in.v_out_img = static_cast<float3 *>(buffers[idx++]);
+    tensors.in.v_out_img_alpha = static_cast<float *>(buffers[idx++]);
+
+    tensors.out.v_colors = static_cast<float3 *>(buffers[idx++]);
+    tensors.out.v_opacity = static_cast<float *>(buffers[idx++]);
+    tensors.out.v_xy = static_cast<float2 *>(buffers[idx++]);
+    tensors.out.v_xy_abs = static_cast<float2 *>(buffers[idx++]);
+    tensors.out.v_conic = static_cast<float3 *>(buffers[idx++]);
 
     cuda_err = cudaMemsetAsync(
         tensors.out.v_xy,
@@ -358,256 +490,8 @@ void ops::rasterize::bwd::xla(
     );
     CUDA_THROW_IF_ERR(cuda_err);
 
-    cudaDeviceSynchronize();
-
-    kernels::rasterize_bwd<<<d.grid_dim_2d, d.block_dim_2d, 0, stream>>>(
-        // in
-        d.grid_dim_2d,
-        d.img_shape,
-        tensors.in.gaussian_ids_sorted,
-        tensors.in.tile_bins,
-        tensors.in.xys,
-        tensors.in.conics,
-        tensors.in.colors,
-        tensors.in.opacities,
-        *tensors.in.background,
-        tensors.in.final_Ts,
-        tensors.in.final_idx,
-        tensors.in.v_out_img,
-        tensors.in.v_out_img_alpha,
-
-        // out
-        tensors.out.v_xy,
-        tensors.out.v_xy_abs,
-        tensors.out.v_conic,
-        tensors.out.v_colors,
-        tensors.out.v_opacity
-    );
-    cuda_err = cudaGetLastError();
-    CUDA_THROW_IF_ERR(cuda_err);
-
-    cudaDeviceSynchronize();
-};
-
-// void ops::sort::xla(
-//     cudaStream_t stream,
-//     void **buffers,
-//     const char *opaque,
-//     std::size_t opaque_len
-// ) {
-//     const auto &d = *unpack_descriptor<Descriptor>(opaque, opaque_len);
-//     const auto tensors = unpack_tensors(buffers);
-
-//     cudaError_t cuda_err;
-
-//     std::int32_t *gaussian_ids_unsorted;
-//     std::int64_t *isect_ids_unsorted;
-//     std::int64_t *isect_ids_sorted;
-
-//     cuda_err = cudaMalloc(
-//         &gaussian_ids_unsorted,
-//         d.num_intersects * sizeof(*gaussian_ids_unsorted)
-//     );
-//     CUDA_THROW_IF_ERR(cuda_err);
-
-//     cuda_err = cudaMalloc(
-//         &isect_ids_unsorted,
-//         d.num_intersects * sizeof(*isect_ids_unsorted)
-//     );
-//     CUDA_THROW_IF_ERR(cuda_err);
-
-//     cuda_err = cudaMalloc(
-//         &isect_ids_sorted,
-//         d.num_intersects * sizeof(*isect_ids_sorted)
-//     );
-//     CUDA_THROW_IF_ERR(cuda_err);
-
-//     kernels::map_gaussian_to_intersects<<<
-//         d.grid_dim_1d,
-//         d.block_dim_1d,
-//         0,
-//         stream>>>(
-//         d.num_points,
-//         tensors.in.xys,
-//         tensors.in.depths,
-//         tensors.in.radii,
-//         tensors.in.cum_tiles_hit,
-//         d.grid_dim_2d,
-//         d.block_width,
-//         isect_ids_unsorted,
-//         gaussian_ids_unsorted
-//     );
-
-//     // sort intersections by ascending tile ID and depth with RadixSort
-//     int32_t max_tile_id = (int32_t)(d.grid_dim_2d.x * d.grid_dim_2d.y);
-//     int msb = 32 - __builtin_clz(max_tile_id) + 1;
-//     // allocate workspace memory
-//     void *sort_ws = nullptr;
-//     size_t sort_ws_bytes;
-//     cuda_err = cub::DeviceRadixSort::SortPairs(
-//         sort_ws,
-//         sort_ws_bytes,
-//         isect_ids_unsorted,
-//         isect_ids_sorted,
-//         gaussian_ids_unsorted,
-//         tensors.out.gaussian_ids_sorted,
-//         d.num_intersects,
-//         0,
-//         32 + msb,
-//         stream
-//     );
-//     CUDA_THROW_IF_ERR(cuda_err);
-
-//     cuda_err = cudaMalloc(&sort_ws, sort_ws_bytes);
-//     CUDA_THROW_IF_ERR(cuda_err);
-
-//     cuda_err = cub::DeviceRadixSort::SortPairs(
-//         sort_ws,
-//         sort_ws_bytes,
-//         isect_ids_unsorted,
-//         isect_ids_sorted,
-//         gaussian_ids_unsorted,
-//         tensors.out.gaussian_ids_sorted,
-//         d.num_intersects,
-//         0,
-//         32 + msb,
-//         stream
-//     );
-//     CUDA_THROW_IF_ERR(cuda_err);
-
-//     cuda_err = cudaFree(sort_ws);
-//     CUDA_THROW_IF_ERR(cuda_err);
-
-//     kernels::get_tile_bin_edges<<<d.grid_dim_1d, d.block_dim_1d, 0,
-//     stream>>>(
-//         d.num_intersects,
-//         isect_ids_sorted,
-//         tensors.out.tile_bins
-//     );
-
-//     // free intermediate work spaces
-//     cuda_err = cudaFree(isect_ids_unsorted);
-//     CUDA_THROW_IF_ERR(cuda_err);
-
-//     cuda_err = cudaFree(isect_ids_sorted);
-//     CUDA_THROW_IF_ERR(cuda_err);
-
-//     cuda_err = cudaFree(gaussian_ids_unsorted);
-//     CUDA_THROW_IF_ERR(cuda_err);
-// }
-
-ops::project::fwd::Tensors ops::project::fwd::unpack_tensors(void **buffers) {
-    Tensors tensors;
-    std::size_t idx = 0;
-
-    tensors.in.mean3ds = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.scales = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.quats = static_cast<float4 *>(buffers[idx++]);
-    tensors.in.viewmat = static_cast<float *>(buffers[idx++]);
-
-    tensors.out.cov3ds = static_cast<float *>(buffers[idx++]);
-    tensors.out.xys = static_cast<float2 *>(buffers[idx++]);
-    tensors.out.depths = static_cast<float *>(buffers[idx++]);
-    tensors.out.radii = static_cast<int *>(buffers[idx++]);
-    tensors.out.conics = static_cast<float3 *>(buffers[idx++]);
-    tensors.out.compensation = static_cast<float *>(buffers[idx++]);
-    tensors.out.num_tiles_hit = static_cast<int *>(buffers[idx++]);
-    tensors.out.cum_tiles_hit = static_cast<int *>(buffers[idx++]);
-
     return tensors;
 }
-
-ops::project::bwd::Tensors ops::project::bwd::unpack_tensors(void **buffers) {
-    Tensors tensors;
-    std::size_t idx = 0;
-
-    tensors.in.mean3ds = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.scales = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.quats = static_cast<float4 *>(buffers[idx++]);
-    tensors.in.viewmat = static_cast<float *>(buffers[idx++]);
-    tensors.in.cov3ds = static_cast<float *>(buffers[idx++]);
-    tensors.in.xys = static_cast<float2 *>(buffers[idx++]);
-    tensors.in.radii = static_cast<int *>(buffers[idx++]);
-    tensors.in.conics = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.compensation = static_cast<float *>(buffers[idx++]);
-    tensors.in.v_compensation = static_cast<float *>(buffers[idx++]);
-    tensors.in.v_xy = static_cast<float2 *>(buffers[idx++]);
-    tensors.in.v_depth = static_cast<float *>(buffers[idx++]);
-    tensors.in.v_conic = static_cast<float3 *>(buffers[idx++]);
-
-    tensors.out.v_mean3d = static_cast<float3 *>(buffers[idx++]);
-    tensors.out.v_scale = static_cast<float3 *>(buffers[idx++]);
-    tensors.out.v_quat = static_cast<float4 *>(buffers[idx++]);
-    tensors.out.v_cov2d = static_cast<float3 *>(buffers[idx++]);
-    tensors.out.v_cov3d = static_cast<float *>(buffers[idx++]);
-
-    return tensors;
-}
-
-ops::rasterize::fwd::Tensors ops::rasterize::fwd::unpack_tensors(void **buffers
-) {
-    Tensors tensors;
-    std::size_t idx = 0;
-
-    tensors.in.colors = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.opacities = static_cast<float *>(buffers[idx++]);
-    tensors.in.background = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.xys = static_cast<float2 *>(buffers[idx++]);
-    tensors.in.depths = static_cast<float *>(buffers[idx++]);
-    tensors.in.radii = static_cast<int *>(buffers[idx++]);
-    tensors.in.conics = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.cum_tiles_hit = static_cast<int *>(buffers[idx++]);
-
-    tensors.out.gaussian_ids_sorted = static_cast<int *>(buffers[idx++]);
-    tensors.out.tile_bins = static_cast<int2 *>(buffers[idx++]);
-    tensors.out.final_Ts = static_cast<float *>(buffers[idx++]);
-    tensors.out.final_idx = static_cast<int *>(buffers[idx++]);
-    tensors.out.out_img = static_cast<float3 *>(buffers[idx++]);
-
-    return tensors;
-}
-
-ops::rasterize::bwd::Tensors ops::rasterize::bwd::unpack_tensors(void **buffers
-) {
-    Tensors tensors;
-    std::size_t idx = 0;
-
-    tensors.in.colors = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.opacities = static_cast<float *>(buffers[idx++]);
-    tensors.in.background = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.xys = static_cast<float2 *>(buffers[idx++]);
-    tensors.in.conics = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.gaussian_ids_sorted = static_cast<int *>(buffers[idx++]);
-    tensors.in.tile_bins = static_cast<int2 *>(buffers[idx++]);
-    tensors.in.final_Ts = static_cast<float *>(buffers[idx++]);
-    tensors.in.final_idx = static_cast<int *>(buffers[idx++]);
-    tensors.in.v_out_img = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.v_out_img_alpha = static_cast<float *>(buffers[idx++]);
-
-    tensors.out.v_colors = static_cast<float3 *>(buffers[idx++]);
-    tensors.out.v_opacity = static_cast<float *>(buffers[idx++]);
-    tensors.out.v_xy = static_cast<float2 *>(buffers[idx++]);
-    tensors.out.v_xy_abs = static_cast<float2 *>(buffers[idx++]);
-    tensors.out.v_conic = static_cast<float3 *>(buffers[idx++]);
-
-    return tensors;
-}
-
-// ops::sort::Tensors ops::sort::unpack_tensors(void **buffers) {
-//     Tensors tensors;
-//     std::size_t idx = 0;
-
-//     tensors.in.xys = static_cast<float2 *>(buffers[idx++]);
-//     tensors.in.depths = static_cast<float *>(buffers[idx++]);
-//     tensors.in.radii = static_cast<int *>(buffers[idx++]);
-//     tensors.in.tile_bins = static_cast<int2 *>(buffers[idx++]);
-//     tensors.in.cum_tiles_hit = static_cast<int *>(buffers[idx++]);
-
-//     tensors.out.gaussian_ids_sorted = static_cast<int *>(buffers[idx++]);
-//     tensors.out.tile_bins = static_cast<int2 *>(buffers[idx++]);
-
-//     return tensors;
-// }
 
 void ops::cumsum(
     cudaStream_t stream,
