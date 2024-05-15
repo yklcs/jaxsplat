@@ -27,7 +27,6 @@ def _project_fwd_rule(
 ):
     opaque = _jaxsplat.make_descriptor(
         num_points=num_points,
-        num_intersects=0,
         img_shape=img_shape,
         f=f,
         c=c,
@@ -103,7 +102,6 @@ def _project_bwd_rule(
 ):
     opaque = _jaxsplat.make_descriptor(
         num_points=num_points,
-        num_intersects=0,
         img_shape=img_shape,
         f=f,
         c=c,

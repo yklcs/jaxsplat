@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import imageio.v3 as iio
 import optax
 import argparse
+import time
 
 
 def main(
@@ -14,43 +15,55 @@ def main(
     out_img_path: str,
     out_vid_path: str,
 ):
-    key = jax.random.key(0)
-
     gt = jnp.array(iio.imread(gt_path)).astype(jnp.float32)[..., :3] / 255
 
-    key, subkey = jax.random.split(key)
-    params, coeffs = init(subkey, num_points, gt.shape[:2])
+    key = jax.random.key(0)
+    params, coeffs = init(key, num_points, gt.shape[:2])
 
-    optim = optax.adam(lr)
-    optim_state = optim.init(params)
+    optimizer = optax.adam(lr)
+    optimizer_state = optimizer.init(params)
 
-    def loss_fn(params, coeffs, gt):
+    def loss_fn(params):
         output = render_fn(params, coeffs)
         loss = jnp.mean(jnp.square(output - gt))
         return loss
 
-    def train(params, optim_state, video):
+    # @jax.jit
+    def train_step(
+        params,
+        optimizer_state: optax.OptState,
+    ):
+        loss, grads = jax.value_and_grad(loss_fn)(params)
+        updates, optimizer_state = optimizer.update(grads, optimizer_state)
+        params = optax.apply_updates(params, updates)
+
+        return params, optimizer_state, loss
+
+    log_every = 50
+    with iio.imopen(out_vid_path, "w", plugin="pyav") as video:
+        video.init_video_stream("h264")
+
+        cum_time = 0
+        cum_time_split = 0
         for i in range(iterations):
-            if video is not None:
-                img = (render_fn(params, coeffs) * 255).astype(jnp.uint8)
-                video.write_frame(img)
+            img = (render_fn(params, coeffs) * 255).astype(jnp.uint8)
+            video.write_frame(img)
 
-            loss, grads = jax.value_and_grad(loss_fn, argnums=0)(params, coeffs, gt)
-            updates, optim_state = optim.update(grads, optim_state)
-            params = optax.apply_updates(params, updates)
+            start = time.perf_counter()
+            params, optimizer_state, loss = train_step(params, optimizer_state)
+            end = time.perf_counter()
 
-            if i % 50 == 0:
-                print(f"iter {i} loss {loss.item():.5f}")
+            cum_time += end - start
+            cum_time_split += end - start
 
-            if loss < 1e-3:
-                break
-
-    if out_vid_path != "":
-        with iio.imopen(out_vid_path, "w", plugin="pyav") as video:
-            video.init_video_stream("h264")
-            train(params, optim_state, video)
-    else:
-        train(params, optim_state, None)
+            if i % log_every == 0:
+                print(
+                    f"iter {i} loss {loss:.4f}, {cum_time_split/log_every*1000:.3f}ms avg per step"
+                )
+                cum_time_split = 0
+        print(
+            f"done training in {cum_time:.3f}s ({cum_time/iterations*1000:.3f}ms avg per step)"
+        )
 
     out = render_fn(params, coeffs)
     iio.imwrite(out_img_path, (out * 255).astype(jnp.uint8))

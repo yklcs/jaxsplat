@@ -14,7 +14,6 @@ py::dict registrations() {
 
 py::bytes make_descriptor(
     unsigned num_points,
-    unsigned num_intersects,
     std::pair<unsigned, unsigned> img_shape,
     std::pair<float, float> f,
     std::pair<float, float> c,
@@ -38,7 +37,6 @@ py::bytes make_descriptor(
 
     ops::Descriptor desc = {
         num_points,
-        num_intersects,
         img_shape_dim3,
         intrins,
         glob_scale,
@@ -60,7 +58,6 @@ PYBIND11_MODULE(_jaxsplat, m) {
         "make_descriptor",
         make_descriptor,
         py::arg("num_points"),
-        py::arg("num_intersects"),
         py::arg("img_shape"),
         py::arg("f"),
         py::arg("c"),

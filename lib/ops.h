@@ -8,7 +8,6 @@ namespace ops {
 
 struct Descriptor {
     unsigned num_points;
-    unsigned num_intersects;
     dim3 img_shape;
 
     float4 intrins;
@@ -164,15 +163,14 @@ struct rasterize::fwd::Tensors {
         const int *cum_tiles_hit;
     } in;
     struct Out {
-        // sort and bin
-        int *gaussian_ids_sorted;
-        int2 *tile_bins;
-
         // rasterization output
         float *final_Ts;
         int *final_idx;
         float3 *out_img;
     } out;
+
+    int *gaussian_ids_sorted;
+    int2 *tile_bins;
 };
 
 struct rasterize::bwd::Tensors {
@@ -184,11 +182,10 @@ struct rasterize::bwd::Tensors {
 
         // projection output
         const float2 *xys;
+        const float *depths;
+        const int *radii;
         const float3 *conics;
-
-        // sorting and binning
-        const int *gaussian_ids_sorted;
-        const int2 *tile_bins;
+        const int *cum_tiles_hit;
 
         // rasterization output
         const float *final_Ts;
@@ -208,6 +205,9 @@ struct rasterize::bwd::Tensors {
         float2 *v_xy_abs;
         float3 *v_conic;
     } out;
+
+    int *gaussian_ids_sorted;
+    int2 *tile_bins;
 };
 
 } // namespace ops
