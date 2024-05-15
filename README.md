@@ -1,9 +1,13 @@
 # jaxsplat
 
+[![Documentation Status](https://readthedocs.org/projects/jaxsplat/badge/?version=latest)](https://jaxsplat.readthedocs.io/en/latest/?badge=latest)
+
 ![](./docs/jaxsplat.gif)
 
 A port of 3D Gaussian Splatting to JAX.
 Fully differentiable, CUDA accelerated.
+
+[Read documentation](https://jaxsplat.readthedocs.io)
 
 ## Installation
 
@@ -52,7 +56,7 @@ $ python -m venv venv && . venv/bin/activate
 $ pip install -r examples/requirements.txt
 
 # Train Gaussians on a single image
-$ python -m examples.single_image.py input.png
+$ python -m examples.single_image input.png
 ```
 
 ## Method
