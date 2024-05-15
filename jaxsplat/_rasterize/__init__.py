@@ -69,14 +69,14 @@ class RasterizeResiduals(TypedDict):
     opacities: jax.Array
     background: jax.Array
     xys: jax.Array
+    depths: jax.Array
+    radii: jax.Array
     conics: jax.Array
-    gaussian_ids_sorted: jax.Array
-    tile_bins: jax.Array
+    cum_tiles_hit: jax.Array
     final_Ts: jax.Array
     final_idx: jax.Array
 
     num_points: int
-    num_intersects: int
     img_shape: tuple[int, int]
     block_width: int
 
@@ -95,38 +95,26 @@ def _rasterize_fwd(
     block_width: int,
 ):
     num_points = colors.shape[0]
-    num_intersects = int(cum_tiles_hit[-1].item())
+    # num_intersects = cum_tiles_hit[-1]
 
-    if num_intersects == 0:
-        gaussian_ids_sorted = jnp.zeros((num_intersects, 1), dtype=jnp.int32)
-        tile_bins = jnp.zeros(
-            (
-                ((img_shape[0] + block_width - 1) // block_width)
-                * ((img_shape[1] + block_width - 1) // block_width),
-                2,
-            ),
-            dtype=jnp.int32,
-        )
-        final_Ts = jnp.zeros((*img_shape, 1), dtype=jnp.float32)
-        final_idx = jnp.zeros((*img_shape, 1), dtype=jnp.int32)
-        img = jnp.ones((*img_shape, 3), dtype=jnp.float32)
-    else:
-        (gaussian_ids_sorted, tile_bins, final_Ts, final_idx, img) = (
-            impl._rasterize_fwd_p.bind(
-                colors,
-                opacities,
-                background,
-                xys,
-                depths,
-                radii,
-                conics,
-                cum_tiles_hit,
-                num_points=num_points,
-                num_intersects=num_intersects,
-                img_shape=img_shape,
-                block_width=block_width,
-            )
-        )
+    # if num_intersects == 0:
+    #     final_Ts = jnp.zeros((*img_shape, 1), dtype=jnp.float32)
+    #     final_idx = jnp.zeros((*img_shape, 1), dtype=jnp.int32)
+    #     img = jnp.ones((*img_shape, 3), dtype=jnp.float32)
+    # else:
+    (final_Ts, final_idx, img) = impl._rasterize_fwd_p.bind(
+        colors,
+        opacities,
+        background,
+        xys,
+        depths,
+        radii,
+        conics,
+        cum_tiles_hit,
+        num_points=num_points,
+        img_shape=img_shape,
+        block_width=block_width,
+    )
 
     # print("rasterize_fwd")
 
@@ -157,14 +145,14 @@ def _rasterize_fwd(
         "opacities": opacities,
         "background": background,
         "xys": xys,
+        "depths": depths,
+        "radii": radii,
         "conics": conics,
-        "gaussian_ids_sorted": gaussian_ids_sorted,
-        "tile_bins": tile_bins,
+        "cum_tiles_hit": cum_tiles_hit,
         "final_Ts": final_Ts,
         "final_idx": final_idx,
         #
         "num_points": num_points,
-        "num_intersects": num_intersects,
         "img_shape": img_shape,
         "block_width": block_width,
     }
@@ -177,37 +165,31 @@ def _rasterize_bwd(
     cotangents,
 ):
     (v_img, v_img_alpha) = cotangents
-    if residuals["num_intersects"] == 0:
-        v_colors = jnp.zeros_like(residuals["colors"])
-        v_opacity = jnp.zeros_like(residuals["opacities"])
-        v_xy = jnp.zeros_like(residuals["xys"])
-        _v_xy_abs = jnp.zeros_like(residuals["xys"])
-        v_conic = jnp.zeros_like(residuals["conics"])
-    else:
-        (
-            v_colors,
-            v_opacity,
-            v_xy,
-            _v_xy_abs,
-            v_conic,
-        ) = impl._rasterize_bwd_p.bind(
-            residuals["colors"],
-            residuals["opacities"],
-            residuals["background"],
-            residuals["xys"],
-            residuals["conics"],
-            residuals["gaussian_ids_sorted"],
-            residuals["tile_bins"],
-            residuals["final_Ts"],
-            residuals["final_idx"],
-            v_img,
-            v_img_alpha,
-            #
-            num_points=residuals["num_points"],
-            num_intersects=residuals["num_intersects"],
-            img_shape=residuals["img_shape"],
-            block_width=residuals["block_width"],
-        )
+
+    (
+        v_colors,
+        v_opacity,
+        v_xy,
+        _v_xy_abs,
+        v_conic,
+    ) = impl._rasterize_bwd_p.bind(
+        residuals["colors"],
+        residuals["opacities"],
+        residuals["background"],
+        residuals["xys"],
+        residuals["depths"],
+        residuals["radii"],
+        residuals["conics"],
+        residuals["cum_tiles_hit"],
+        residuals["final_Ts"],
+        residuals["final_idx"],
+        v_img,
+        v_img_alpha,
+        #
+        num_points=residuals["num_points"],
+        img_shape=residuals["img_shape"],
+        block_width=residuals["block_width"],
+    )
 
     # print("rasterize_bwd")
 

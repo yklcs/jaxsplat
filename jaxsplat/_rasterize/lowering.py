@@ -22,13 +22,11 @@ def _rasterize_fwd_rule(
     cum_tiles_hit: ir.Value,
     #
     num_points: int,
-    num_intersects: int,
     img_shape: tuple[int, int],
     block_width: int,
 ):
     opaque = _jaxsplat.make_descriptor(
         num_points=num_points,
-        num_intersects=num_intersects,
         img_shape=img_shape,
         f=(0.0, 0.0),
         c=(0.0, 0.0),
@@ -37,7 +35,7 @@ def _rasterize_fwd_rule(
         block_width=block_width,
     )
 
-    t = RasterizeFwdTypes(num_points, num_intersects, img_shape, block_width)
+    t = RasterizeFwdTypes(num_points, img_shape)
 
     return custom_call(
         "rasterize_fwd",
@@ -62,15 +60,11 @@ def _rasterize_fwd_rule(
             t.in_cum_tiles_hit.layout(),
         ],
         result_types=[
-            t.out_gaussian_ids_sorted.ir_tensor_type(),
-            t.out_tile_bins.ir_tensor_type(),
             t.out_final_Ts.ir_tensor_type(),
             t.out_final_idx.ir_tensor_type(),
             t.out_img.ir_tensor_type(),
         ],
         result_layouts=[
-            t.out_gaussian_ids_sorted.layout(),
-            t.out_tile_bins.layout(),
             t.out_final_Ts.layout(),
             t.out_final_idx.layout(),
             t.out_img.layout(),
@@ -86,22 +80,21 @@ def _rasterize_bwd_rule(
     opacities: ir.Value,
     background: ir.Value,
     xys: ir.Value,
+    depths: ir.Value,
+    radii: ir.Value,
     conics: ir.Value,
-    gaussian_ids_sorted: ir.Value,
-    tile_bins: ir.Value,
+    cum_tiles_hit: ir.Value,
     final_Ts: ir.Value,
     final_idx: ir.Value,
     v_img: ir.Value,
     v_img_alpha: ir.Value,
     #
     num_points: int,
-    num_intersects: int,
     img_shape: tuple[int, int],
     block_width: int,
 ):
     opaque = _jaxsplat.make_descriptor(
         num_points=num_points,
-        num_intersects=num_intersects,
         img_shape=img_shape,
         f=(0.0, 0.0),
         c=(0.0, 0.0),
@@ -110,7 +103,7 @@ def _rasterize_bwd_rule(
         block_width=block_width,
     )
 
-    t = RasterizeBwdTypes(num_points, num_intersects, img_shape, block_width)
+    t = RasterizeBwdTypes(num_points, img_shape)
 
     return custom_call(
         "rasterize_bwd",
@@ -119,9 +112,10 @@ def _rasterize_bwd_rule(
             opacities,
             background,
             xys,
+            depths,
+            radii,
             conics,
-            gaussian_ids_sorted,
-            tile_bins,
+            cum_tiles_hit,
             final_Ts,
             final_idx,
             v_img,
@@ -132,9 +126,10 @@ def _rasterize_bwd_rule(
             t.in_opacities.layout(),
             t.in_background.layout(),
             t.in_xys.layout(),
+            t.in_depths.layout(),
+            t.in_radii.layout(),
             t.in_conics.layout(),
-            t.in_gaussian_ids_sorted.layout(),
-            t.in_tile_bins.layout(),
+            t.in_cum_tiles_hit.layout(),
             t.in_final_Ts.layout(),
             t.in_final_idx.layout(),
             t.in_v_img.layout(),

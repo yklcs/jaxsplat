@@ -45,12 +45,14 @@ def main(
             if loss < 1e-3:
                 break
 
+    train_jit = train
+
     if out_vid_path != "":
         with iio.imopen(out_vid_path, "w", plugin="pyav") as video:
             video.init_video_stream("h264")
-            train(params, optim_state, video)
+            train_jit(params, optim_state, video)
     else:
-        train(params, optim_state, None)
+        train_jit(params, optim_state, None)
 
     out = render_fn(params, coeffs)
     iio.imwrite(out_img_path, (out * 255).astype(jnp.uint8))
@@ -134,7 +136,19 @@ def render_fn(params, coeffs):
     colors = jax.nn.sigmoid(params["colors"])
     opacities = jax.nn.sigmoid(params["opacities"])
 
-    img = jaxsplat.render(
+    render_jit = jax.jit(
+        jaxsplat.render,
+        static_argnames=(
+            "img_shape",
+            "f",
+            "c",
+            "glob_scale",
+            "clip_thresh",
+            "block_size",
+        ),
+    )
+    # render_jit = jaxsplat.render
+    img = render_jit(
         means3d=means3d,
         scales=scales,
         quats=quats,
@@ -142,7 +156,7 @@ def render_fn(params, coeffs):
         opacities=opacities,
         viewmat=coeffs["viewmat"],
         background=coeffs["background"],
-        img_shape=coeffs["img_shape"],
+        img_shape=(1156, 1528),
         f=coeffs["f"],
         c=coeffs["c"],
         glob_scale=coeffs["glob_scale"],

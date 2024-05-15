@@ -123,8 +123,8 @@ void ops::rasterize::fwd::xla(
         tensors.in.depths,
         tensors.in.radii,
         tensors.in.cum_tiles_hit,
-        tensors.out.gaussian_ids_sorted,
-        tensors.out.tile_bins
+        tensors.gaussian_ids_sorted,
+        tensors.tile_bins
     );
     cuda_err = cudaGetLastError();
     CUDA_THROW_IF_ERR(cuda_err);
@@ -134,8 +134,8 @@ void ops::rasterize::fwd::xla(
         // in
         d.grid_dim_2d,
         d.img_shape,
-        tensors.out.gaussian_ids_sorted,
-        tensors.out.tile_bins,
+        tensors.gaussian_ids_sorted,
+        tensors.tile_bins,
         tensors.in.xys,
         tensors.in.conics,
         tensors.in.colors,
@@ -148,6 +148,12 @@ void ops::rasterize::fwd::xla(
         *tensors.in.background
     );
     cuda_err = cudaGetLastError();
+    CUDA_THROW_IF_ERR(cuda_err);
+    cudaStreamSynchronize(stream);
+
+    cuda_err = cudaFreeAsync(tensors.gaussian_ids_sorted, stream);
+    CUDA_THROW_IF_ERR(cuda_err);
+    cuda_err = cudaFreeAsync(tensors.tile_bins, stream);
     CUDA_THROW_IF_ERR(cuda_err);
     cudaStreamSynchronize(stream);
 };
@@ -164,12 +170,26 @@ void ops::rasterize::bwd::xla(
     const auto tensors = unpack_tensors(stream, d, buffers);
     cudaStreamSynchronize(stream);
 
+    sort_and_bin(
+        stream,
+        d,
+        tensors.in.xys,
+        tensors.in.depths,
+        tensors.in.radii,
+        tensors.in.cum_tiles_hit,
+        tensors.gaussian_ids_sorted,
+        tensors.tile_bins
+    );
+    cuda_err = cudaGetLastError();
+    CUDA_THROW_IF_ERR(cuda_err);
+    cudaStreamSynchronize(stream);
+
     kernels::rasterize_bwd<<<d.grid_dim_2d, d.block_dim_2d, 0, stream>>>(
         // in
         d.grid_dim_2d,
         d.img_shape,
-        tensors.in.gaussian_ids_sorted,
-        tensors.in.tile_bins,
+        tensors.gaussian_ids_sorted,
+        tensors.tile_bins,
         tensors.in.xys,
         tensors.in.conics,
         tensors.in.colors,
@@ -188,6 +208,12 @@ void ops::rasterize::bwd::xla(
         tensors.out.v_opacity
     );
     cuda_err = cudaGetLastError();
+    CUDA_THROW_IF_ERR(cuda_err);
+    cudaStreamSynchronize(stream);
+
+    cuda_err = cudaFreeAsync(tensors.gaussian_ids_sorted, stream);
+    CUDA_THROW_IF_ERR(cuda_err);
+    cuda_err = cudaFreeAsync(tensors.tile_bins, stream);
     CUDA_THROW_IF_ERR(cuda_err);
     cudaStreamSynchronize(stream);
 };
@@ -372,29 +398,24 @@ ops::rasterize::fwd::Tensors ops::rasterize::fwd::unpack_tensors(
     tensors.in.conics = static_cast<float3 *>(buffers[idx++]);
     tensors.in.cum_tiles_hit = static_cast<int *>(buffers[idx++]);
 
-    tensors.out.gaussian_ids_sorted = static_cast<int *>(buffers[idx++]);
-    tensors.out.tile_bins = static_cast<int2 *>(buffers[idx++]);
     tensors.out.final_Ts = static_cast<float *>(buffers[idx++]);
     tensors.out.final_idx = static_cast<int *>(buffers[idx++]);
     tensors.out.out_img = static_cast<float3 *>(buffers[idx++]);
 
+    tensors.gaussian_ids_sorted = nullptr;
+    tensors.tile_bins = nullptr;
+
+    unsigned num_intersects = 0;
+    cuda_err = cudaMemcpyAsync(
+        &num_intersects,
+        tensors.in.cum_tiles_hit + d.num_points - 1,
+        sizeof(num_intersects),
+        cudaMemcpyKind::cudaMemcpyDeviceToHost,
+        stream
+    );
+    CUDA_THROW_IF_ERR(cuda_err);
+
     const auto img_size = d.img_shape.x * d.img_shape.y;
-
-    cuda_err = cudaMemsetAsync(
-        tensors.out.gaussian_ids_sorted,
-        0,
-        sizeof(*tensors.out.gaussian_ids_sorted) * d.num_intersects,
-        stream
-    );
-    CUDA_THROW_IF_ERR(cuda_err);
-
-    cuda_err = cudaMemsetAsync(
-        tensors.out.tile_bins,
-        0,
-        sizeof(*tensors.out.tile_bins) * d.grid_dim_2d.x * d.grid_dim_2d.y,
-        stream
-    );
-    CUDA_THROW_IF_ERR(cuda_err);
 
     cuda_err = cudaMemsetAsync(
         tensors.out.final_Ts,
@@ -420,6 +441,36 @@ ops::rasterize::fwd::Tensors ops::rasterize::fwd::unpack_tensors(
     );
     CUDA_THROW_IF_ERR(cuda_err);
 
+    cuda_err = cudaMallocAsync(
+        &tensors.gaussian_ids_sorted,
+        sizeof(*tensors.gaussian_ids_sorted) * num_intersects,
+        stream
+    );
+    CUDA_THROW_IF_ERR(cuda_err);
+
+    cuda_err = cudaMemsetAsync(
+        tensors.gaussian_ids_sorted,
+        0,
+        sizeof(*tensors.gaussian_ids_sorted) * num_intersects,
+        stream
+    );
+    CUDA_THROW_IF_ERR(cuda_err);
+
+    cuda_err = cudaMallocAsync(
+        &tensors.tile_bins,
+        sizeof(*tensors.tile_bins) * d.grid_dim_2d.x * d.grid_dim_2d.y,
+        stream
+    );
+    CUDA_THROW_IF_ERR(cuda_err);
+
+    cuda_err = cudaMemsetAsync(
+        tensors.tile_bins,
+        0,
+        sizeof(*tensors.tile_bins) * d.grid_dim_2d.x * d.grid_dim_2d.y,
+        stream
+    );
+    CUDA_THROW_IF_ERR(cuda_err);
+
     return tensors;
 }
 
@@ -436,9 +487,10 @@ ops::rasterize::bwd::Tensors ops::rasterize::bwd::unpack_tensors(
     tensors.in.opacities = static_cast<float *>(buffers[idx++]);
     tensors.in.background = static_cast<float3 *>(buffers[idx++]);
     tensors.in.xys = static_cast<float2 *>(buffers[idx++]);
+    tensors.in.depths = static_cast<float *>(buffers[idx++]);
+    tensors.in.radii = static_cast<int *>(buffers[idx++]);
     tensors.in.conics = static_cast<float3 *>(buffers[idx++]);
-    tensors.in.gaussian_ids_sorted = static_cast<int *>(buffers[idx++]);
-    tensors.in.tile_bins = static_cast<int2 *>(buffers[idx++]);
+    tensors.in.cum_tiles_hit = static_cast<int *>(buffers[idx++]);
     tensors.in.final_Ts = static_cast<float *>(buffers[idx++]);
     tensors.in.final_idx = static_cast<int *>(buffers[idx++]);
     tensors.in.v_out_img = static_cast<float3 *>(buffers[idx++]);
@@ -449,6 +501,19 @@ ops::rasterize::bwd::Tensors ops::rasterize::bwd::unpack_tensors(
     tensors.out.v_xy = static_cast<float2 *>(buffers[idx++]);
     tensors.out.v_xy_abs = static_cast<float2 *>(buffers[idx++]);
     tensors.out.v_conic = static_cast<float3 *>(buffers[idx++]);
+
+    tensors.gaussian_ids_sorted = nullptr;
+    tensors.tile_bins = nullptr;
+
+    unsigned num_intersects = 0;
+    cuda_err = cudaMemcpyAsync(
+        &num_intersects,
+        tensors.in.cum_tiles_hit + d.num_points - 1,
+        sizeof(num_intersects),
+        cudaMemcpyKind::cudaMemcpyDeviceToHost,
+        stream
+    );
+    CUDA_THROW_IF_ERR(cuda_err);
 
     cuda_err = cudaMemsetAsync(
         tensors.out.v_xy,
@@ -486,6 +551,36 @@ ops::rasterize::bwd::Tensors ops::rasterize::bwd::unpack_tensors(
         tensors.out.v_opacity,
         0,
         sizeof(*tensors.out.v_opacity) * d.num_points,
+        stream
+    );
+    CUDA_THROW_IF_ERR(cuda_err);
+
+    cuda_err = cudaMallocAsync(
+        &tensors.gaussian_ids_sorted,
+        sizeof(*tensors.gaussian_ids_sorted) * num_intersects,
+        stream
+    );
+    CUDA_THROW_IF_ERR(cuda_err);
+
+    cuda_err = cudaMemsetAsync(
+        tensors.gaussian_ids_sorted,
+        0,
+        sizeof(*tensors.gaussian_ids_sorted) * num_intersects,
+        stream
+    );
+    CUDA_THROW_IF_ERR(cuda_err);
+
+    cuda_err = cudaMallocAsync(
+        &tensors.tile_bins,
+        sizeof(*tensors.tile_bins) * d.grid_dim_2d.x * d.grid_dim_2d.y,
+        stream
+    );
+    CUDA_THROW_IF_ERR(cuda_err);
+
+    cuda_err = cudaMemsetAsync(
+        tensors.tile_bins,
+        0,
+        sizeof(*tensors.tile_bins) * d.grid_dim_2d.x * d.grid_dim_2d.y,
         stream
     );
     CUDA_THROW_IF_ERR(cuda_err);
@@ -543,48 +638,57 @@ void ops::sort_and_bin(
 ) {
     cudaError_t cuda_err;
 
+    unsigned num_intersects = 0;
+    cudaMemcpyAsync(
+        &num_intersects,
+        cum_tiles_hit + d.num_points - 1,
+        sizeof(num_intersects),
+        cudaMemcpyKind::cudaMemcpyDeviceToHost,
+        stream
+    );
+
     std::int32_t *gaussian_ids_unsorted;
     std::int64_t *isect_ids_unsorted;
     std::int64_t *isect_ids_sorted;
 
     cuda_err = cudaMalloc(
         &gaussian_ids_unsorted,
-        d.num_intersects * sizeof(*gaussian_ids_unsorted)
+        num_intersects * sizeof(*gaussian_ids_unsorted)
     );
     CUDA_THROW_IF_ERR(cuda_err);
 
     cuda_err = cudaMemsetAsync(
         gaussian_ids_unsorted,
         0,
-        d.num_intersects * sizeof(*gaussian_ids_unsorted),
+        num_intersects * sizeof(*gaussian_ids_unsorted),
         stream
     );
     CUDA_THROW_IF_ERR(cuda_err);
 
     cuda_err = cudaMalloc(
         &isect_ids_unsorted,
-        d.num_intersects * sizeof(*isect_ids_unsorted)
+        num_intersects * sizeof(*isect_ids_unsorted)
     );
     CUDA_THROW_IF_ERR(cuda_err);
 
     cuda_err = cudaMemsetAsync(
         isect_ids_unsorted,
         0,
-        d.num_intersects * sizeof(*isect_ids_unsorted),
+        num_intersects * sizeof(*isect_ids_unsorted),
         stream
     );
     CUDA_THROW_IF_ERR(cuda_err);
 
     cuda_err = cudaMalloc(
         &isect_ids_sorted,
-        d.num_intersects * sizeof(*isect_ids_sorted)
+        num_intersects * sizeof(*isect_ids_sorted)
     );
     CUDA_THROW_IF_ERR(cuda_err);
 
     cuda_err = cudaMemsetAsync(
         isect_ids_sorted,
         0,
-        d.num_intersects * sizeof(*isect_ids_sorted),
+        num_intersects * sizeof(*isect_ids_sorted),
         stream
     );
     CUDA_THROW_IF_ERR(cuda_err);
@@ -620,7 +724,7 @@ void ops::sort_and_bin(
         isect_ids_sorted,
         gaussian_ids_unsorted,
         gaussian_ids_sorted,
-        d.num_intersects,
+        num_intersects,
         0,
         32 + msb,
         stream
@@ -637,7 +741,7 @@ void ops::sort_and_bin(
         isect_ids_sorted,
         gaussian_ids_unsorted,
         gaussian_ids_sorted,
-        d.num_intersects,
+        num_intersects,
         0,
         32 + msb,
         stream
@@ -653,10 +757,10 @@ void ops::sort_and_bin(
     //     d.block_dim_1d
     // );
     kernels::get_tile_bin_edges<<<
-        (d.num_intersects + d.block_dim_1d - 1) / d.block_dim_1d,
+        (num_intersects + d.block_dim_1d - 1) / d.block_dim_1d,
         d.block_dim_1d,
         0,
-        stream>>>(d.num_intersects, isect_ids_sorted, tile_bins);
+        stream>>>(num_intersects, isect_ids_sorted, tile_bins);
     cuda_err = cudaGetLastError();
     CUDA_THROW_IF_ERR(cuda_err);
 
