@@ -10,9 +10,10 @@ author = "Lucas Yunkyu Lee"
 
 extensions = ["myst_parser", "sphinx.ext.autodoc", "sphinx.ext.napoleon"]
 
+autodoc_mock_imports = ["jax", "jaxlib", "jaxsplat._jaxsplat"]
+
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
-
 
 html_theme = "furo"
 html_static_path = ["_static"]
