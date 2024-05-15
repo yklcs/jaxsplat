@@ -1,6 +1,6 @@
 # jaxsplat
 
-![](./jaxsplat.gif)
+![](./docs/jaxsplat.gif)
 
 A port of 3D Gaussian Splatting to JAX.
 Fully differentiable, CUDA accelerated.
