@@ -2,3 +2,5 @@ jax
 optax
 imageio[pyav]
 jaxsplat @ git+https://github.com/yklcs/jaxsplat
+torch
+diff-gaussian-rasterization @ git+https://github.com/yklcs/diff-gaussian-rasterization
