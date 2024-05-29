@@ -6,6 +6,7 @@ project(_jaxsplat LANGUAGES CXX CUDA)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CUDA_ARCHITECTURES native)
 
+set(PYBIND11_NEWPYTHON ON)
 find_package(pybind11 CONFIG REQUIRED)
 
 include_directories(${CMAKE_CURRENT_LIST_DIR}/lib)
