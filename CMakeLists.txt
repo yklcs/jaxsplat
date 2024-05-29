@@ -21,7 +21,7 @@ pybind11_add_module(
     ${CMAKE_CURRENT_LIST_DIR}/lib/kernels/other.cu
 )
 
-if(DEFINED ${SKBUILD})
+if(DEFINED SKBUILD)
     set(JAXSPLAT_INSTALL_DEST ${SKBUILD_PLATLIB_DIR})
 else()
     set(JAXSPLAT_INSTALL_DEST ${CMAKE_CURRENT_LIST_DIR})
