@@ -2,7 +2,7 @@ from jax.interpreters import mlir
 from jax.interpreters.mlir import ir
 from jaxlib.hlo_helpers import custom_call
 
-from jaxsplat import _jaxsplat
+import _jaxsplat
 from jaxsplat._rasterize.abstract import (
     RasterizeFwdTypes,
     RasterizeBwdTypes,

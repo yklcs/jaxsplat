@@ -20,4 +20,11 @@ pybind11_add_module(
     ${CMAKE_CURRENT_LIST_DIR}/lib/kernels/other.cu
 )
 
-install(TARGETS _jaxsplat LIBRARY DESTINATION ${CMAKE_CURRENT_LIST_DIR}/jaxsplat)
+if(DEFINED ${SKBUILD})
+    set(JAXSPLAT_INSTALL_DEST ${SKBUILD_PLATLIB_DIR})
+else()
+    set(JAXSPLAT_INSTALL_DEST ${CMAKE_CURRENT_LIST_DIR})
+endif()
+
+message(STATUS "Installing _jaxsplat to ${JAXSPLAT_INSTALL_DEST}")
+install(TARGETS _jaxsplat LIBRARY DESTINATION ${JAXSPLAT_INSTALL_DEST})

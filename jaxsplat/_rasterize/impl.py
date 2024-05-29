@@ -4,7 +4,7 @@ from jax import core
 
 import functools
 
-from jaxsplat import _jaxsplat
+import _jaxsplat
 from jaxsplat._rasterize import lowering, abstract
 
 
