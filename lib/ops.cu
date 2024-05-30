@@ -116,9 +116,20 @@ void ops::rasterize::fwd::xla(
     const auto tensors = unpack_tensors(stream, d, buffers);
     cudaStreamSynchronize(stream);
 
+    if (tensors.num_intersects == 0) {
+        kernels::tiled_memset<<<d.grid_dim_1d, d.block_dim_1d, 0, stream>>>(
+            reinterpret_cast<float *>(tensors.out.out_img),
+            d.img_shape.x * d.img_shape.y * 3,
+            reinterpret_cast<const float *>(tensors.in.background),
+            3
+        );
+        return;
+    }
+
     sort_and_bin(
         stream,
         d,
+        tensors.num_intersects,
         tensors.in.xys,
         tensors.in.depths,
         tensors.in.radii,
@@ -170,9 +181,14 @@ void ops::rasterize::bwd::xla(
     const auto tensors = unpack_tensors(stream, d, buffers);
     cudaStreamSynchronize(stream);
 
+    if (tensors.num_intersects == 0) {
+        return;
+    }
+
     sort_and_bin(
         stream,
         d,
+        tensors.num_intersects,
         tensors.in.xys,
         tensors.in.depths,
         tensors.in.radii,
@@ -405,11 +421,11 @@ ops::rasterize::fwd::Tensors ops::rasterize::fwd::unpack_tensors(
     tensors.gaussian_ids_sorted = nullptr;
     tensors.tile_bins = nullptr;
 
-    unsigned num_intersects = 0;
+    tensors.num_intersects = 0;
     cuda_err = cudaMemcpyAsync(
-        &num_intersects,
+        &tensors.num_intersects,
         tensors.in.cum_tiles_hit + d.num_points - 1,
-        sizeof(num_intersects),
+        sizeof(tensors.num_intersects),
         cudaMemcpyKind::cudaMemcpyDeviceToHost,
         stream
     );
@@ -443,7 +459,7 @@ ops::rasterize::fwd::Tensors ops::rasterize::fwd::unpack_tensors(
 
     cuda_err = cudaMallocAsync(
         &tensors.gaussian_ids_sorted,
-        sizeof(*tensors.gaussian_ids_sorted) * num_intersects,
+        sizeof(*tensors.gaussian_ids_sorted) * tensors.num_intersects,
         stream
     );
     CUDA_THROW_IF_ERR(cuda_err);
@@ -451,7 +467,7 @@ ops::rasterize::fwd::Tensors ops::rasterize::fwd::unpack_tensors(
     cuda_err = cudaMemsetAsync(
         tensors.gaussian_ids_sorted,
         0,
-        sizeof(*tensors.gaussian_ids_sorted) * num_intersects,
+        sizeof(*tensors.gaussian_ids_sorted) * tensors.num_intersects,
         stream
     );
     CUDA_THROW_IF_ERR(cuda_err);
@@ -505,11 +521,11 @@ ops::rasterize::bwd::Tensors ops::rasterize::bwd::unpack_tensors(
     tensors.gaussian_ids_sorted = nullptr;
     tensors.tile_bins = nullptr;
 
-    unsigned num_intersects = 0;
+    tensors.num_intersects = 0;
     cuda_err = cudaMemcpyAsync(
-        &num_intersects,
+        &tensors.num_intersects,
         tensors.in.cum_tiles_hit + d.num_points - 1,
-        sizeof(num_intersects),
+        sizeof(tensors.num_intersects),
         cudaMemcpyKind::cudaMemcpyDeviceToHost,
         stream
     );
@@ -557,7 +573,7 @@ ops::rasterize::bwd::Tensors ops::rasterize::bwd::unpack_tensors(
 
     cuda_err = cudaMallocAsync(
         &tensors.gaussian_ids_sorted,
-        sizeof(*tensors.gaussian_ids_sorted) * num_intersects,
+        sizeof(*tensors.gaussian_ids_sorted) * tensors.num_intersects,
         stream
     );
     CUDA_THROW_IF_ERR(cuda_err);
@@ -565,7 +581,7 @@ ops::rasterize::bwd::Tensors ops::rasterize::bwd::unpack_tensors(
     cuda_err = cudaMemsetAsync(
         tensors.gaussian_ids_sorted,
         0,
-        sizeof(*tensors.gaussian_ids_sorted) * num_intersects,
+        sizeof(*tensors.gaussian_ids_sorted) * tensors.num_intersects,
         stream
     );
     CUDA_THROW_IF_ERR(cuda_err);
@@ -629,6 +645,7 @@ void ops::cumsum(
 void ops::sort_and_bin(
     cudaStream_t stream,
     const Descriptor &d,
+    unsigned num_intersects,
     const float2 *xys,
     const float *depths,
     const int *radii,
@@ -637,15 +654,6 @@ void ops::sort_and_bin(
     int2 *tile_bins
 ) {
     cudaError_t cuda_err;
-
-    unsigned num_intersects = 0;
-    cudaMemcpyAsync(
-        &num_intersects,
-        cum_tiles_hit + d.num_points - 1,
-        sizeof(num_intersects),
-        cudaMemcpyKind::cudaMemcpyDeviceToHost,
-        stream
-    );
 
     std::int32_t *gaussian_ids_unsorted;
     std::int64_t *isect_ids_unsorted;

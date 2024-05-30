@@ -31,6 +31,7 @@ void cumsum(
 void sort_and_bin(
     cudaStream_t stream,
     const Descriptor &d,
+    unsigned num_intersects,
     const float2 *xys,
     const float *depths,
     const int *radii,
@@ -169,6 +170,7 @@ struct rasterize::fwd::Tensors {
         float3 *out_img;
     } out;
 
+    int num_intersects;
     int *gaussian_ids_sorted;
     int2 *tile_bins;
 };
@@ -206,6 +208,7 @@ struct rasterize::bwd::Tensors {
         float3 *v_conic;
     } out;
 
+    int num_intersects;
     int *gaussian_ids_sorted;
     int2 *tile_bins;
 };
