@@ -1,7 +1,7 @@
 import jax
 from jax.interpreters import mlir
 from jax.interpreters.mlir import ir
-from jax.core import ShapedArray, canonicalize_shape
+from jax.core import ShapedArray
 import jax.numpy as jnp
 from jax.typing import DTypeLike
 from jax.dtypes import canonicalize_dtype
@@ -12,7 +12,7 @@ class Type:
     dtype: jnp.dtype
 
     def __init__(self, shape: tuple[int, ...], dtype: DTypeLike):
-        self.shape = canonicalize_shape(shape)
+        self.shape = shape
         self.dtype = jnp.dtype(dtype)
 
     def ir_type(self):
