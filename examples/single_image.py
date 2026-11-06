@@ -1,4 +1,4 @@
-import jaxsplat
+import jaxsplat_ffi as jaxsplat
 import jax
 import jax.numpy as jnp
 import imageio.v3 as iio

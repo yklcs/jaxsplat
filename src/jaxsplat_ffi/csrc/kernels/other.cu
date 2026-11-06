@@ -42,3 +42,26 @@ __global__ void kernels::compute_cov2d_bounds(
     conics[index + 2] = conic.z;
     radii[row] = radius;
 }
+
+__global__ void kernels::fill_value(float *dst, size_t n, float value) {
+    for (size_t tid = blockIdx.x * blockDim.x + threadIdx.x; tid < n;
+         tid += blockDim.x * gridDim.x) {
+        dst[tid] = value;
+    }
+}
+
+// Nothing visible: image = per-image background, transmittance = 1.
+__global__ void kernels::fill_background(
+    float3 *img,
+    float *final_Ts,
+    size_t pixels_per_image,
+    size_t num_images,
+    const float3 *background
+) {
+    const size_t n = pixels_per_image * num_images;
+    for (size_t tid = blockIdx.x * blockDim.x + threadIdx.x; tid < n;
+         tid += blockDim.x * gridDim.x) {
+        img[tid] = background[tid / pixels_per_image];
+        final_Ts[tid] = 1.f;
+    }
+}

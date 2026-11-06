@@ -1,19 +1,19 @@
-CMakeCache.txt
-CMakeFiles/
-/Makefile
-cmake_install.cmake
-compile_commands.json
-install_manifest.txt
 build/
+dist/
 .cache/
+*.egg-info
 *.so
 
 venv/
+.venv/
+uv.lock
 __pycache__/
 *.py[cod]
 
 _gsplat/
+results/
 test.png
 test.jpg
+test-*.png
 out.png
 out.mp4

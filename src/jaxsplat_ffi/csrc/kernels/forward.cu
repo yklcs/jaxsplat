@@ -12,6 +12,7 @@ namespace kernels {
 // each thread processes one gaussian
 __global__ void project_gaussians_fwd(
     const int num_points,
+    const int points_per_image,
     const float3 *__restrict__ means3d,
     const float3 *__restrict__ scales,
     const float glob_scale,
@@ -22,6 +23,7 @@ __global__ void project_gaussians_fwd(
     const dim3 tile_bounds,
     const unsigned block_width,
     const float clip_thresh,
+    const float *__restrict__ opacities,
     float *__restrict__ covs3d,
     float2 *__restrict__ xys,
     float *__restrict__ depths,
@@ -34,8 +36,27 @@ __global__ void project_gaussians_fwd(
     if (idx >= num_points) {
         return;
     }
+    // Initialise every output here (replaces one memset per output).
     radii[idx] = 0;
     num_tiles_hit[idx] = 0;
+    xys[idx] = {0.f, 0.f};
+    depths[idx] = 0.f;
+    conics[idx] = {0.f, 0.f, 0.f};
+    compensation[idx] = 0.f;
+#pragma unroll
+    for (int k = 0; k < 6; ++k) {
+        covs3d[6 * idx + k] = 0.f;
+    }
+
+    // Batched rendering: each image has its own view matrix.
+    viewmat += 16 * (idx / points_per_image);
+
+    // A Gaussian with opacity < 1/255 never passes the rasterizer's
+    // alpha >= 1/255 test (alpha <= opacity), so skipping it here changes
+    // nothing in the output but keeps it out of sorting and every tile loop.
+    if (opacities != nullptr && opacities[idx] < 1.f / 255.f) {
+        return;
+    }
 
     float3 p_world = means3d[idx];
     // printf("p_world %d %.2f %.2f %.2f\n", idx, p_world.x, p_world.y,
@@ -134,6 +155,7 @@ __global__ void project_gaussians_fwd(
 // writes output to isect_ids and gaussian_ids
 __global__ void map_gaussian_to_intersects(
     const int num_points,
+    const int points_per_image,
     const float2 *__restrict__ xys,
     const float *__restrict__ depths,
     const int *__restrict__ radii,
@@ -166,10 +188,13 @@ __global__ void map_gaussian_to_intersects(
     int32_t cur_idx = (idx == 0) ? 0 : cum_tiles_hit[idx - 1];
     // printf("point %d starting at %d\n", idx, cur_idx);
     int64_t depth_id = (int64_t) * (int32_t *)&(depths[idx]);
+    // Batched rendering: tiles of image b are numbered after those of b - 1.
+    const int64_t tile_offset =
+        int64_t(idx / points_per_image) * tile_bounds.x * tile_bounds.y;
     for (int i = tile_min.y; i < tile_max.y; ++i) {
         for (int j = tile_min.x; j < tile_max.x; ++j) {
             // isect_id is tile ID and depth as int32
-            int64_t tile_id = i * tile_bounds.x + j; // tile within image
+            int64_t tile_id = tile_offset + i * tile_bounds.x + j;
             isect_ids[cur_idx] = (tile_id << 32) | depth_id; // tile | depth id
             gaussian_ids[cur_idx] = idx;                     // 3D gaussian id
             ++cur_idx; // handles gaussians that hit more than one tile
@@ -207,135 +232,6 @@ __global__ void get_tile_bin_edges(
     }
 }
 
-// kernel function for rasterizing each tile
-// each thread treats a single pixel
-// each thread group uses the same gaussian data in a tile
-__global__ void nd_rasterize_forward(
-    const dim3 tile_bounds,
-    const dim3 img_size,
-    const unsigned channels,
-    const int32_t *__restrict__ gaussian_ids_sorted,
-    const int2 *__restrict__ tile_bins,
-    const float2 *__restrict__ xys,
-    const float3 *__restrict__ conics,
-    const float *__restrict__ colors,
-    const float *__restrict__ opacities,
-    float *__restrict__ final_Ts,
-    int *__restrict__ final_index,
-    float *__restrict__ out_img,
-    const float *__restrict__ background
-) {
-    auto block = cg::this_thread_block();
-    int32_t tile_id =
-        block.group_index().y * tile_bounds.x + block.group_index().x;
-    unsigned i =
-        block.group_index().y * block.group_dim().y + block.thread_index().y;
-    unsigned j =
-        block.group_index().x * block.group_dim().x + block.thread_index().x;
-
-    float px = (float)j + 0.5;
-    float py = (float)i + 0.5;
-    int32_t pix_id = i * img_size.x + j;
-
-    // keep not rasterizing threads around for reading data
-    bool inside = (i < img_size.y && j < img_size.x);
-    bool done = !inside;
-
-    int2 range = tile_bins[tile_id];
-    const int block_size = block.size();
-    int num_batches = (range.y - range.x + block_size - 1) / block_size;
-
-    extern __shared__ int s[];
-    int32_t *id_batch = (int32_t *)s;
-    float3 *xy_opacity_batch = (float3 *)&id_batch[block_size];
-    float3 *conic_batch = (float3 *)&xy_opacity_batch[block_size];
-    __half *color_out_batch = (__half *)&conic_batch[block_size];
-#pragma unroll
-    for (int c = 0; c < channels; ++c)
-        color_out_batch[block.thread_rank() * channels + c] = __float2half(0.f);
-
-    // current visibility left to render
-    float T = 1.f;
-    // index of most recent gaussian to write to this thread's pixel
-    int cur_idx = 0;
-
-    // collect and process batches of gaussians
-    // each thread loads one gaussian at a time before rasterizing its
-    // designated pixel
-    int tr = block.thread_rank();
-    __half *pix_out = &color_out_batch[block.thread_rank() * channels];
-
-    for (int b = 0; b < num_batches; ++b) {
-        // resync all threads before beginning next batch
-        // end early if entire tile is done
-        if (__syncthreads_count(done) >= block_size) {
-            break;
-        }
-        // each thread fetch 1 gaussian from front to back
-
-        int batch_start = range.x + block_size * b;
-        int idx = batch_start + tr;
-        if (idx < range.y) {
-            int32_t g_id = gaussian_ids_sorted[idx];
-            id_batch[tr] = g_id;
-            const float2 xy = xys[g_id];
-            const float opac = opacities[g_id];
-            xy_opacity_batch[tr] = {xy.x, xy.y, opac};
-            conic_batch[tr] = conics[g_id];
-        }
-
-        // wait for other threads to collect the gaussians in batch
-        block.sync();
-
-        int batch_size = min(block_size, range.y - batch_start);
-        for (int t = 0; (t < batch_size) && !done; ++t) {
-            const float3 conic = conic_batch[t];
-            const float3 xy_opac = xy_opacity_batch[t];
-            const float opac = xy_opac.z;
-            const float2 delta = {xy_opac.x - px, xy_opac.y - py};
-            const float sigma = 0.5f * (conic.x * delta.x * delta.x +
-                                        conic.z * delta.y * delta.y) +
-                                conic.y * delta.x * delta.y;
-            const float alpha = min(0.999f, opac * __expf(-sigma));
-            if (sigma < 0.f || alpha < 1.f / 255.f) {
-                continue;
-            }
-
-            const float next_T = T * (1.f - alpha);
-            if (next_T <= 1e-4f) {
-                // we want to render the last gaussian that contributes and note
-                // that here idx > range.x so we don't underflow
-                done = true;
-                break;
-            }
-
-            int32_t g = id_batch[t];
-            const float vis = alpha * T;
-#pragma unroll
-            for (int c = 0; c < channels; ++c) {
-                pix_out[c] = __hadd(
-                    pix_out[c],
-                    __float2half(colors[channels * g + c] * vis)
-                );
-            }
-            T = next_T;
-            cur_idx = batch_start + t;
-        }
-    }
-
-    if (inside) {
-        // add background
-        final_Ts[pix_id] = T; // transmittance at last gaussian in this pixel
-        final_index[pix_id] =
-            cur_idx; // index of in bin of last gaussian in this pixel
-#pragma unroll
-        for (int c = 0; c < channels; ++c) {
-            out_img[pix_id * channels + c] =
-                __half2float(pix_out[c]) + T * background[c];
-        }
-    }
-}
-
 __global__ void rasterize_fwd(
     const dim3 tile_bounds,
     const dim3 img_size,
@@ -348,14 +244,19 @@ __global__ void rasterize_fwd(
     float *__restrict__ final_Ts,
     int *__restrict__ final_index,
     float3 *__restrict__ out_img,
-    const float3 &__restrict__ background
+    const float3 *__restrict__ background_ptr
 ) {
+    // Batched rendering: blockIdx.z is the image index.
+    const unsigned image = blockIdx.z;
+    const float3 background = background_ptr[image];
+
     // each thread draws one pixel, but also timeshares caching gaussians in a
     // shared tile
 
     auto block = cg::this_thread_block();
     int32_t tile_id =
-        block.group_index().y * tile_bounds.x + block.group_index().x;
+        (image * tile_bounds.y + block.group_index().y) * tile_bounds.x +
+        block.group_index().x;
     unsigned i =
         block.group_index().y * block.group_dim().y + block.thread_index().y;
     unsigned j =
@@ -363,7 +264,7 @@ __global__ void rasterize_fwd(
 
     float px = (float)j + 0.5;
     float py = (float)i + 0.5;
-    int32_t pix_id = i * img_size.x + j;
+    int32_t pix_id = image * img_size.x * img_size.y + i * img_size.x + j;
 
     // return if out of bounds
     // keep not rasterizing threads around for reading data
@@ -565,6 +466,36 @@ __device__ void scale_rot_to_cov3d(
     cov3d[3] = tmp[1][1];
     cov3d[4] = tmp[1][2];
     cov3d[5] = tmp[2][2];
+}
+
+} // namespace kernels
+
+namespace kernels {
+
+// Number of tiles each Gaussian touches, recomputed from its projected centre
+// and radius exactly like project_gaussians_fwd does. The rasterizer uses
+// this instead of the projection's cum_tiles_hit, so batched calls stay
+// correct even when JAX broadcasts one projection to several images.
+__global__ void count_tiles_hit(
+    const int num_points,
+    const float2 *__restrict__ xys,
+    const int *__restrict__ radii,
+    const dim3 tile_bounds,
+    const unsigned block_width,
+    int32_t *__restrict__ num_tiles_hit
+) {
+    unsigned idx = cg::this_grid().thread_rank();
+    if (idx >= num_points)
+        return;
+    int32_t area = 0;
+    if (radii[idx] > 0) {
+        uint2 tile_min, tile_max;
+        helpers::get_tile_bbox(
+            xys[idx], radii[idx], tile_bounds, tile_min, tile_max, block_width
+        );
+        area = (tile_max.x - tile_min.x) * (tile_max.y - tile_min.y);
+    }
+    num_tiles_hit[idx] = area;
 }
 
 } // namespace kernels

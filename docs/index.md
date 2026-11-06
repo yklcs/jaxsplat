@@ -1,25 +1,30 @@
-# jaxsplat
+# jaxsplat_ffi
 
 ![](./jaxsplat.gif)
 
-jaxsplat is a port of 3D Gaussian Splatting to [JAX](https://github.com/google/jax).
+jaxsplat_ffi is a port of 3D Gaussian Splatting to [JAX](https://github.com/google/jax).
 Fully differentiable, CUDA accelerated.
+
+It is a fork of [jaxsplat](https://github.com/yklcs/jaxsplat) that runs the same kernels through JAX's XLA FFI, so it works with JAX ≥ 0.6.
+`import jaxsplat_ffi as jaxsplat` is a drop-in switch.
 
 ## Installation
 
-Requires a working CUDA toolchain to install. Simply `pip install`ing directly from source should build and install jaxsplat:
+Requires a working CUDA toolchain to install. Simply `pip install`ing directly from source should build and install jaxsplat_ffi:
 
 ```shell
 $ python -m venv venv && . venv/bin/activate
-$ pip install git+https://github.com/yklcs/jaxsplat
+$ pip install "jaxsplat-ffi @ git+https://github.com/dwoiwode/jaxsplat"
 ```
 
 ## Usage
 
-The primary function of jaxsplat is `jaxsplat.render`, which renders 3D Gaussians to a 2D image differentiably.
+The primary function of jaxsplat_ffi is `jaxsplat.render`, which renders 3D Gaussians to a 2D image differentiably.
 View [the rendering API docs](./render/index) for more complete docs.
 
 ```python
+import jaxsplat_ffi as jaxsplat
+
 img = jaxsplat.render(
     means3d,
     scales,
@@ -48,7 +53,7 @@ img = jaxsplat.render(
     :hidden:
 
     self
-    GitHub <https://github.com/yklcs/jaxsplat/blob/main/examples/single_image.py>
+    GitHub <https://github.com/dwoiwode/jaxsplat/blob/main/examples/single_image.py>
 
 .. toctree::
     :maxdepth: 2
@@ -62,5 +67,5 @@ img = jaxsplat.render(
     :hidden:
     :caption: Examples:
 
-    Single image <https://github.com/yklcs/jaxsplat/blob/main/examples/single_image.py>
+    Single image <https://github.com/dwoiwode/jaxsplat/blob/main/examples/single_image.py>
 ```

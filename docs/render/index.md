@@ -3,7 +3,7 @@
 The primary function of this library is `jaxsplat.render`:
 
 ```{eval-rst}
-.. autofunction:: jaxsplat.render
+.. autofunction:: jaxsplat_ffi.render
 ```
 
 ## Basic usage
@@ -12,7 +12,7 @@ Let's render random 3D Gaussians to an image.
 We start by importing packages:
 
 ```python
-import jaxsplat
+import jaxsplat_ffi as jaxsplat
 import jax.numpy as jnp
 import jax
 import imageio.v3 as iio

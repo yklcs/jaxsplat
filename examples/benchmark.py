@@ -8,7 +8,7 @@ import time
 import argparse
 
 import gsplat
-import jaxsplat
+import jaxsplat_ffi as jaxsplat
 import diff_gaussian_rasterization
 
 
